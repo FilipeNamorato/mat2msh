@@ -1,65 +1,52 @@
-import matplotlib.pyplot as plt
 import numpy as np
-import scipy.io as sio
+import matplotlib.pyplot as plt
+from scipy.io import loadmat
 
-# Carrega os arquivos .mat
-original_data = sio.loadmat('Patient_1.mat')
-modified_data = sio.loadmat('Teste2.mat')
+def plot_slices_with_time(coordX_dict, coordY_dict, num_slices):
+    """
+    Plota as coordenadas X e Y ao longo do tempo para cada estrutura.
+    """
+    for key in coordX_dict.keys():
+        plt.figure(figsize=(10, 5))
+        plt.title(f'{key} - Movimento ao Longo do Tempo')
+        plt.xlabel('Fatia')
+        plt.ylabel('Coordenada')
 
-# Extrai as estruturas relevantes
-original_setstruct = original_data['setstruct'][0][0]
-modified_setstruct = modified_data['setstruct'][0][0]
+        # Plot das coordenadas X e Y ao longo do tempo para a estrutura
+        x_mean = [np.nanmean(coordX_dict[key][:, 0, s]) for s in range(num_slices)]
+        y_mean = [np.nanmean(coordY_dict[key][:, 0, s]) for s in range(num_slices)]
 
-# Função para calcular o baricentro ao longo das fatias
-def calculate_barycenter_along_slices(coordX, coordY):
-    barycenter_X = np.nanmean(coordX, axis=0)  # Média ao longo dos pontos
-    barycenter_Y = np.nanmean(coordY, axis=0)
-    return barycenter_X, barycenter_Y
+        plt.plot(range(num_slices), x_mean, '-o', label=f'{key} - X', alpha=0.7)
+        plt.plot(range(num_slices), y_mean, '-o', label=f'{key} - Y', alpha=0.7)
 
-# Função para exibir informações úteis no console
-def print_alignment_info(field, original, modified):
-    orig_bary_X, orig_bary_Y = calculate_barycenter_along_slices(
-        original[field], original[field.replace('X', 'Y')]
-    )
-    mod_bary_X, mod_bary_Y = calculate_barycenter_along_slices(
-        modified[field], modified[field.replace('X', 'Y')]
-    )
+        plt.legend()
+        plt.grid(True)
+        plt.show()
 
-    # Calcula o deslocamento médio aplicado em cada fatia
-    displacement_X = np.nanmean(mod_bary_X - orig_bary_X)
-    displacement_Y = np.nanmean(mod_bary_Y - orig_bary_Y)
+# Carrega o arquivo alinhado .mat
+data = loadmat('analise.mat')
 
-    # Calcula o desvio padrão dos baricentros (antes e depois)
-    std_orig_X = np.nanstd(orig_bary_X)
-    std_mod_X = np.nanstd(mod_bary_X)
+# Acessa a estrutura setstruct
+setstruct = data['setstruct'][0][0]
 
-    print(f"\n[Field: {field}]")
-    print(f"  Deslocamento Médio em X: {displacement_X:.2f}")
-    print(f"  Deslocamento Médio em Y: {displacement_Y:.2f}")
-    print(f"  Desvio Padrão Antes (X): {std_orig_X:.2f}")
-    print(f"  Desvio Padrão Depois (X): {std_mod_X:.2f}")
+# Extrai as coordenadas de cada estrutura
+coordX_dict = {
+    'Endo': setstruct['EndoX'],
+    'RVEndo': setstruct['RVEndoX'],
+    'RVEpi': setstruct['RVEpiX']
+}
 
-# Função para plotar os baricentros
-def plot_barycenter_comparison(field, original, modified):
-    orig_bary_X, _ = calculate_barycenter_along_slices(
-        original[field], original[field.replace('X', 'Y')]
-    )
-    mod_bary_X, _ = calculate_barycenter_along_slices(
-        modified[field], modified[field.replace('X', 'Y')]
-    )
+coordY_dict = {
+    'Endo': setstruct['EndoY'],
+    'RVEndo': setstruct['RVEndoY'],
+    'RVEpi': setstruct['RVEpiY']
+}
 
-    plt.figure(figsize=(10, 5))
-    plt.plot(orig_bary_X, label='Original Barycenter X', marker='o')
-    plt.plot(mod_bary_X, label='Aligned Barycenter X', marker='x')
-    plt.title(f'Barycenter Comparison - {field}')
-    plt.xlabel('Slice Index')
-    plt.ylabel('Barycenter X Coordinate')
-    plt.legend()
-    plt.show()
+# Define o número de fatias
+num_slices = coordX_dict['Endo'].shape[2]
 
-# Avaliação das estruturas
-fields_to_compare = ['EndoX', 'RVEndoX', 'RVEpiX']
+# Chama a função de plotagem
+print("Plotando movimento das estruturas ao longo do tempo...")
+plot_slices_with_time(coordX_dict, coordY_dict, num_slices)
 
-for field in fields_to_compare:
-    print_alignment_info(field, original_setstruct, modified_setstruct)
-    plot_barycenter_comparison(field, original_setstruct, modified_setstruct)
+print("Diagnóstico concluído.")

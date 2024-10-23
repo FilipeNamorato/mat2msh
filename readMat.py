@@ -2,55 +2,69 @@ import numpy as np
 from scipy.io import loadmat, savemat
 
 def read_mat(mat_filename):
-    # Carrega o arquivo .mat e extrai o campo 'setstruct'
-    data = loadmat(mat_filename)
-    mat = data['setstruct'][0][0]
+    # Carregar o arquivo MATLAB
+    data = loadmat(mat_filename, struct_as_record=False, squeeze_me=True)
+    setstruct = data['setstruct']
 
-    # Função para calcular o baricentro ignorando a série temporal
-    def calculate_barycenter_ignoring_time(coordX, coordY):
-        # Calcula a média ao longo dos frames (dimensão 1)
-        X_avg = np.nanmean(coordX, axis=1, keepdims=True)
-        Y_avg = np.nanmean(coordY, axis=1, keepdims=True)
-        return X_avg.squeeze(), Y_avg.squeeze()
+    # Extrair as coordenadas de cada estrutura e verificar se são válidas
+    def get_coordinates(field):
+        coords = getattr(setstruct, field, None)
+        if coords is None or len(coords.shape) < 2:
+            raise ValueError(f"Coordenadas inválidas para {field}.")
+        if len(coords.shape) == 2:
+            coords = coords[:, :, np.newaxis]  # Adiciona dimensão extra se necessário
+        return coords
 
-    def shift_structure(coordX, coordY, barycenter_X, barycenter_Y, global_barycenter_X, global_barycenter_Y):
-        num_slices = coordX.shape[2]  # Número de fatias
+    endoX = get_coordinates('EndoX')
+    endoY = get_coordinates('EndoY')
+    RVEndoX = get_coordinates('RVEndoX')
+    RVEndoY = get_coordinates('RVEndoY')
+    RVEpiX = get_coordinates('RVEpiX')
+    RVEpiY = get_coordinates('RVEpiY')
 
-        print(f"Shifting structure: {coordX.shape}, {barycenter_X.shape}, {global_barycenter_X.shape}")
+    def align_structure(structX, structY, reference_slice):
+        """Alinha uma estrutura em relação a uma fatia de referência."""
+        num_slices = structX.shape[2]  # Verifica se há a dimensão esperada
 
+        # Verifica se a fatia de referência é válida
+        refX_mean = np.nanmean(structX[:, 0, reference_slice])
+        refY_mean = np.nanmean(structY[:, 0, reference_slice])
+
+        # Alinha cada fatia em relação à fatia de referência
         for s in range(num_slices):
-            # Garantir que estamos lidando com valores escalares em vez de arrays
-            if not np.isnan(barycenter_X[0, s]) and not np.isnan(barycenter_Y[0, s]):
-                # Extrair valores escalares para o deslocamento
-                shiftX = float(global_barycenter_X[0, s]) - float(barycenter_X[0, s])
-                shiftY = float(global_barycenter_Y[0, s]) - float(barycenter_Y[0, s])
+            if np.isnan(structX[:, 0, s]).all():
+                print(f"Fatia {s} contém apenas NaNs, pulando...")
+                continue
 
-                # Aplicar o deslocamento para todos os pontos na fatia
-                coordX[:, 0, s] += shiftX  # Usando frame 0 (ignorar série temporal)
-                coordY[:, 0, s] += shiftY
+            shiftX = np.nanmean(structX[:, 0, s]) - refX_mean
+            shiftY = np.nanmean(structY[:, 0, s]) - refY_mean
 
-    # Extrai as coordenadas das diferentes estruturas
-    endoX, endoY = mat['EndoX'], mat['EndoY']
-    RVEndoX, RVEndoY = mat['RVEndoX'], mat['RVEndoY']
-    RVEpiX, RVEpiY = mat['RVEpiX'], mat['RVEpiY']
+            print(f"Fatia {s}: shiftX acumulado={shiftX}, shiftY acumulado={shiftY}")
 
-    # Calcula os baricentros ignorando a série temporal
-    endo_bary_X, endo_bary_Y = calculate_barycenter_ignoring_time(endoX, endoY)
-    RV_bary_X, RV_bary_Y = calculate_barycenter_ignoring_time(RVEndoX, RVEndoY)
-    epi_bary_X, epi_bary_Y = calculate_barycenter_ignoring_time(RVEpiX, RVEpiY)
+            structX[:, 0, s] -= shiftX
+            structY[:, 0, s] -= shiftY
 
-    # Calcula os baricentros globais para todas as fatias
-    global_barycenter_X = np.nanmean([endo_bary_X, RV_bary_X, epi_bary_X], axis=0)
-    global_barycenter_Y = np.nanmean([endo_bary_Y, RV_bary_Y, epi_bary_Y], axis=0)
+    # Escolher a fatia de referência
+    reference_slice = 4
 
-    # Aplica o deslocamento para cada estrutura, ignorando a série temporal
-    shift_structure(endoX, endoY, endo_bary_X, endo_bary_Y, global_barycenter_X, global_barycenter_Y)
-    shift_structure(RVEndoX, RVEndoY, RV_bary_X, RV_bary_Y, global_barycenter_X, global_barycenter_Y)
-    shift_structure(RVEpiX, RVEpiY, epi_bary_X, epi_bary_Y, global_barycenter_X, global_barycenter_Y)
+    # Alinhar as estruturas
+    align_structure(endoX, endoY, reference_slice)
+    align_structure(RVEndoX, RVEndoY, reference_slice)
+    align_structure(RVEpiX, RVEpiY, reference_slice)
 
-    # Atualiza as coordenadas no dicionário
-    mat['EndoX'], mat['EndoY'] = endoX, endoY
-    mat['RVEndoX'], mat['RVEndoY'] = RVEndoX, RVEndoY
-    mat['RVEpiX'], mat['RVEpiY'] = RVEpiX, RVEpiY
+    print("Alinhamento completo para todas as estruturas.")
 
-    return mat
+    # Atualizar as coordenadas dentro da estrutura original
+    setstruct.EndoX = endoX
+    setstruct.EndoY = endoY
+    setstruct.RVEndoX = RVEndoX
+    setstruct.RVEndoY = RVEndoY
+    setstruct.RVEpiX = RVEpiX
+    setstruct.RVEpiY = RVEpiY
+
+    # Salvar o arquivo modificado
+    output_filename = 'analise.mat'
+    savemat(output_filename, {'setstruct': setstruct}, do_compression=True)
+    print(f"Arquivo alinhado salvo como: {output_filename}")
+
+    return data  # Retorna os dados para uso adicional, se necessário
