@@ -73,4 +73,4 @@ def plot_comparison(original_filename, processed_filename, plot_original=True, m
     plt.show()
 
 # Exemplo de uso
-plot_comparison('Patient_1.mat', 'analise.mat', plot_original=True)
+plot_comparison('Patient_1.mat', 'analise.mat', plot_original=False)
