@@ -35,8 +35,6 @@ def plot_comparison(original_filename, processed_filename, plot_original=True, m
             label=label
         )
 
-    num_slices = proc_endoX.shape[2]
-
     def plot_valid_points(ax, X, Y, Z, color, label, s):
         """Plota apenas pontos válidos (não NaN) para uma fatia específica."""
         valid = ~np.isnan(X[:, 0, s]) & ~np.isnan(Y[:, 0, s])
@@ -50,13 +48,16 @@ def plot_comparison(original_filename, processed_filename, plot_original=True, m
 
     # Plotar as estruturas originais (se habilitado)
     if plot_original:
-        original_data = loadmat(original_filename)['setstruct'][0][0]
+        original_data = loadmat(original_filename)['SEGsave'][0][0]
         orig_endoX, orig_endoY, orig_rvendoX, orig_rvendoY, orig_rvepiX, orig_rvepiY = extract_coordinates(original_data)
-
+        num_slices = min(proc_endoX.shape[2], orig_endoX.shape[2])
+        
         for s in range(num_slices):
             plot_valid_points(ax, orig_endoX, orig_endoY, s, '#1f77b4', 'Original - Endo' if s == 0 else "", s)
             plot_valid_points(ax, orig_rvendoX, orig_rvendoY, s, '#2ca02c', 'Original - RVEndo' if s == 0 else "", s)
             plot_valid_points(ax, orig_rvepiX, orig_rvepiY, s, '#d62728', 'Original - RVEpi' if s == 0 else "", s)
+    else:
+        num_slices = proc_endoX.shape[2]
 
     # Plotar as estruturas processadas
     for s in range(num_slices):
@@ -73,4 +74,4 @@ def plot_comparison(original_filename, processed_filename, plot_original=True, m
     plt.show()
 
 # Exemplo de uso
-plot_comparison('Patient_1.mat', 'analise.mat', plot_original=False)
+plot_comparison('Patient_1_aligned.mat', 'analise.mat', plot_original=True)
