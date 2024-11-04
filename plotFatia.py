@@ -37,9 +37,12 @@ def plot_comparison(original_filename, processed_filename, plot_original=True, m
 
     def plot_valid_points(ax, X, Y, Z, color, label, s):
         """Plota apenas pontos válidos (não NaN) para uma fatia específica."""
-        valid = ~np.isnan(X[:, 0, s]) & ~np.isnan(Y[:, 0, s])
-        if np.sum(valid) > 0:  # Se houver pontos válidos
+        if X.ndim == 3:
+            valid = ~np.isnan(X[:, 0, s]) & ~np.isnan(Y[:, 0, s])
             plot_structure(ax, X[valid, 0, s], Y[valid, 0, s], np.full(np.sum(valid), s), color, label)
+        elif X.ndim == 2:
+            valid = ~np.isnan(X[:, s]) & ~np.isnan(Y[:, s])
+            plot_structure(ax, X[valid, s], Y[valid, s], np.full(np.sum(valid), s), color, label)
 
     # Função para validar uma fatia com base na proporção mínima de pontos válidos
     def valid_slice(data, s, min_valid_ratio):
@@ -53,9 +56,9 @@ def plot_comparison(original_filename, processed_filename, plot_original=True, m
         num_slices = min(proc_endoX.shape[2], orig_endoX.shape[2])
         
         for s in range(num_slices):
-            plot_valid_points(ax, orig_endoX, orig_endoY, s, '#1f77b4', 'Original - Endo' if s == 0 else "", s)
-            plot_valid_points(ax, orig_rvendoX, orig_rvendoY, s, '#2ca02c', 'Original - RVEndo' if s == 0 else "", s)
-            plot_valid_points(ax, orig_rvepiX, orig_rvepiY, s, '#d62728', 'Original - RVEpi' if s == 0 else "", s)
+            plot_valid_points(ax, orig_endoX, orig_endoY, s, '#1f77b4', 'Alinhado matlab - Endo' if s == 0 else "", s)
+            plot_valid_points(ax, orig_rvendoX, orig_rvendoY, s, '#2ca02c', 'Alinhado matlab - RVEndo' if s == 0 else "", s)
+            plot_valid_points(ax, orig_rvepiX, orig_rvepiY, s, '#d62728', 'Alinhado matlab - RVEpi' if s == 0 else "", s)
     else:
         num_slices = proc_endoX.shape[2]
 
@@ -68,10 +71,12 @@ def plot_comparison(original_filename, processed_filename, plot_original=True, m
     ax.set_xlabel('Coordenada X')
     ax.set_ylabel('Coordenada Y')
     ax.set_zlabel('Fatia (Eixo Z)')
-    ax.set_title('Comparação das Estruturas - Original vs Processado')
+    ax.set_title('Comparação das Estruturas - Alinhado matlab vs Processado')
     ax.legend(loc='upper right')
 
     plt.show()
 
 # Exemplo de uso
 plot_comparison('Patient_1_aligned.mat', 'analise.mat', plot_original=True)
+#plot_comparison('analise.mat', 'analise.mat', plot_original=False)
+#plot_comparison('Patient_1_aligned.mat', 'analise.mat', plot_original=False)

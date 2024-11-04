@@ -1,75 +1,83 @@
 import numpy as np
 from scipy.io import loadmat, savemat
+from sklearn.linear_model import LinearRegression
 
 def read_mat(mat_filename):
+    print(f"Lendo o arquivo: {mat_filename}")
     data = loadmat(mat_filename, struct_as_record=False, squeeze_me=True)
     setstruct = data['setstruct']
+    print("Estrutura de dados carregada com sucesso.")
 
     def get_coordinates(field):
+        print(f"Extraindo coordenadas para: {field}")
         coords = getattr(setstruct, field, None)
         if coords is None:
             raise ValueError(f"Campo {field} não encontrado.")
         if len(coords.shape) == 2:
-            coords = coords[:, np.newaxis, :]  # Inserir dimensão intermediária (1)
+            coords = coords[:, np.newaxis, :]
+        print(f"Coordenadas para {field} extraídas com shape: {coords.shape}")
         return coords
 
     # Extrair as coordenadas das estruturas
     endoX = get_coordinates('EndoX')
     endoY = get_coordinates('EndoY')
-    RVEndoX = get_coordinates('RVEndoX')
-    RVEndoY = get_coordinates('RVEndoY')
-    RVEpiX = get_coordinates('RVEpiX')
-    RVEpiY = get_coordinates('RVEpiY')
+    epiX = get_coordinates('EpiX')
+    epiY = get_coordinates('EpiY')
 
-    def align_slices(structX, structY, min_points=5, window_size=20):
-        num_slices = structX.shape[2]
-        alignedX = np.copy(structX)
-        alignedY = np.copy(structY)
-        
-        def calculate_shift(prev, current, next_slice):
-            valid_prev = ~np.isnan(prev) & ~np.isnan(current)
-            valid_next = ~np.isnan(current) & ~np.isnan(next_slice)
-            
-            shift_prev = np.nanmean(current[valid_prev] - prev[valid_prev]) if np.sum(valid_prev) >= min_points else 0
-            shift_next = np.nanmean(next_slice[valid_next] - current[valid_next]) if np.sum(valid_next) >= min_points else 0
-            
-            return (shift_prev + shift_next) / 2
+    def calculate_barycenters(X, Y):
+        """Calcula os baricentros para cada fatia."""
+        print("Calculando baricentros...")
+        barycenters = np.array([
+            [np.nanmean(X[:, 0, s]), np.nanmean(Y[:, 0, s])] if not np.isnan(X[:, 0, s]).all() else [np.nan, np.nan]
+            for s in range(X.shape[2])
+        ])
+        print(f"Baricentros calculados: {barycenters}")
+        return barycenters
 
-        for s in range(1, num_slices - 1):
-            window_start = max(0, s - window_size // 2)
-            window_end = min(num_slices, s + window_size // 2 + 1)
-            
-            shiftsX = []
-            shiftsY = []
-            for w in range(window_start, window_end - 1):
-                shiftX = calculate_shift(structX[:, 0, w], structX[:, 0, w + 1], structX[:, 0, w + 2] if w + 2 < num_slices else structX[:, 0, w + 1])
-                shiftY = calculate_shift(structY[:, 0, w], structY[:, 0, w + 1], structY[:, 0, w + 2] if w + 2 < num_slices else structY[:, 0, w + 1])
-                shiftsX.append(shiftX)
-                shiftsY.append(shiftY)
-            
-            mean_shiftX = np.mean(shiftsX)
-            mean_shiftY = np.mean(shiftsY)
-            
-            valid_current = ~np.isnan(structX[:, 0, s])
-            alignedX[valid_current, 0, s] -= mean_shiftX
-            alignedY[valid_current, 0, s] -= mean_shiftY
+    def align_slices(X, Y, barycenters):
+        """Alinha as fatias com base na regressão linear dos baricentros."""
+        print("Iniciando alinhamento de fatias...")
+        num_slices = X.shape[2]
+        #Posição de cada fatia ao longo do eixo Z
+        z = np.arange(num_slices).reshape(-1, 1)
 
-        return alignedX, alignedY
+        valid_idx = ~np.isnan(barycenters[:, 0])
+        print(f"Índices válidos para regressão: {valid_idx}")
+        if valid_idx.sum() > 1:
+            print("Executando regressão linear...")
+            modelX = LinearRegression().fit(z[valid_idx], barycenters[valid_idx, 0])
+            modelY = LinearRegression().fit(z[valid_idx], barycenters[valid_idx, 1])
 
-    # Aplicar o alinhamento às estruturas usando a nova função
-    endoX, endoY = align_slices(endoX, endoY)
-    RVEndoX, RVEndoY = align_slices(RVEndoX, RVEndoY)
-    RVEpiX, RVEpiY = align_slices(RVEpiX, RVEpiY)
+            estX = modelX.predict(z)
+            estY = modelY.predict(z)
+            print(f"Estimativas de X: {estX}")
+            print(f"Estimativas de Y: {estY}")
 
-    print("Alinhamento com vizinhos completo.")
+            for s in range(num_slices):
+                if not np.isnan(X[:, 0, s]).all():
+                    shiftX = barycenters[s, 0] - estX[s]
+                    shiftY = barycenters[s, 1] - estY[s]
+                    print(f"Aplicando deslocamento na fatia {s}: shiftX={shiftX}, shiftY={shiftY}")
+                    X[:, :, s] -= shiftX
+                    Y[:, :, s] -= shiftY
 
-    # Atualizar a estrutura original com as coordenadas corrigidas
+        return X, Y
+
+    # Calcular os baricentros
+    endo_barycenters = calculate_barycenters(endoX, endoY)
+    epi_barycenters = calculate_barycenters(epiX, epiY)
+
+    # Alinhar as estruturas
+    endoX, endoY = align_slices(endoX, endoY, endo_barycenters)
+    epiX, epiY = align_slices(epiX, epiY, epi_barycenters)
+
+    print("Alinhamento completo.")
+
+    # Atualizar a estrutura original com as coordenadas alinhadas
     setstruct.EndoX = endoX
     setstruct.EndoY = endoY
-    setstruct.RVEndoX = RVEndoX
-    setstruct.RVEndoY = RVEndoY
-    setstruct.RVEpiX = RVEpiX
-    setstruct.RVEpiY = RVEpiY
+    setstruct.EpiX = epiX
+    setstruct.EpiY = epiY
 
     # Salvar o arquivo processado
     output_filename = 'analise.mat'
