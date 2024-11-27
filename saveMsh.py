@@ -1,100 +1,85 @@
 import numpy as np
-from scipy.io import loadmat
-from scipy.spatial import Delaunay
 import os
-import meshio
+from datetime import datetime
+from scipy.io import loadmat
 
-def export_to_txt(mat_filename, output_prefix, voxel_depth=1.0, interpolation_factor=2):
+def save_structures_to_txt(mat_filename, output_dir):
     """
-    Exporta coordenadas das estruturas do arquivo .mat para arquivos .txt,
-    com interpolação para maior resolução e ajustando o eixo Z com base na profundidade do voxel.
-    
+    Salva as coordenadas de estruturas (LVEndo, LVEpi, RVEndo, RVEpi) em arquivos .txt únicos,
+    contendo todas as fatias de cada estrutura no formato MATLAB.
+
     Parameters:
-    - mat_filename: Caminho para o arquivo .mat com os dados alinhados.
-    - output_prefix: Prefixo dos arquivos .txt gerados.
-    - voxel_depth: Profundidade entre as fatias originais.
-    - interpolation_factor: Número de camadas intermediárias para interpolação.
+    - mat_filename: Caminho para o arquivo .mat.
+    - output_dir: Diretório onde os arquivos serão salvos.
     """
-    data = loadmat(mat_filename, struct_as_record=False, squeeze_me=True)
-    setstruct = data['setstruct']
+    # Cria um diretório de saída baseado na data atual
+    date_str = datetime.now().strftime("%Y%m%d")
+    output_path = os.path.join(output_dir, date_str)
+    os.makedirs(output_path, exist_ok=True)
 
+    try:
+        data = loadmat(mat_filename, struct_as_record=False, squeeze_me=True)
+        setstruct = data['setstruct']
+    except Exception as e:
+        print(f"Erro ao carregar o arquivo .mat: {e}")
+        return None
+
+    # Estruturas a serem processadas
     structures = {
-        'Endo': ('EndoX', 'EndoY'),
-        'Epi': ('EpiX', 'EpiY'),
+        'LVEndo': ('EndoX', 'EndoY'),
+        'LVEpi': ('EpiX', 'EpiY'),
         'RVEndo': ('RVEndoX', 'RVEndoY'),
         'RVEpi': ('RVEpiX', 'RVEpiY')
     }
 
-    if not os.path.exists(output_prefix):
-        os.makedirs(output_prefix)
-
+    # Processar cada estrutura
     for name, (x_attr, y_attr) in structures.items():
         try:
             x_coords = getattr(setstruct, x_attr)
             y_coords = getattr(setstruct, y_attr)
 
-            if x_coords.ndim == 1:
-                x_coords = x_coords[:, np.newaxis]
-                y_coords = y_coords[:, np.newaxis]
-                num_slices = 1
-            elif x_coords.ndim == 2:
-                num_slices = x_coords.shape[1]
-            else:
-                num_slices = x_coords.shape[2]
+            num_slices = x_coords.shape[2] if x_coords.ndim == 3 else x_coords.shape[1]
 
-            # Interpolação entre camadas
-            for s in range(num_slices - 1):
-                x_slice = x_coords[:, 0, s] if x_coords.ndim == 3 else x_coords[:, s]
-                y_slice = y_coords[:, 0, s] if x_coords.ndim == 3 else y_coords[:, s]
-                next_x_slice = x_coords[:, 0, s + 1] if x_coords.ndim == 3 else x_coords[:, s + 1]
-                next_y_slice = y_coords[:, 0, s + 1] if y_coords.ndim == 3 else y_coords[:, s + 1]
+            # Nome do arquivo de saída
+            output_filename = os.path.join(output_path, f"Patient_1-{name}.txt")
+            with open(output_filename, 'w') as f:
+                for s in range(num_slices):
+                    # Obter as coordenadas da fatia
+                    x_slice = x_coords[:, 0, s] if x_coords.ndim == 3 else x_coords[:, s]
+                    y_slice = y_coords[:, 0, s] if y_coords.ndim == 3 else y_coords[:, s]
 
-                for i in range(interpolation_factor):
-                    alpha = i / interpolation_factor
-                    interpolated_x = (1 - alpha) * x_slice + alpha * next_x_slice
-                    interpolated_y = (1 - alpha) * y_slice + alpha * next_y_slice
-                    z_value = (s + alpha) * voxel_depth
+                    # Filtrar pontos válidos
+                    valid_mask = ~np.isnan(x_slice) & ~np.isnan(y_slice)
+                    valid_x = x_slice[valid_mask]
+                    valid_y = y_slice[valid_mask]
+                    z_value = np.full(valid_x.shape, s)  # Usar o índice da fatia como valor Z
 
-                    valid_mask = ~np.isnan(interpolated_x) & ~np.isnan(interpolated_y)
-                    if np.any(valid_mask):
-                        coords = np.column_stack((interpolated_x[valid_mask], interpolated_y[valid_mask], np.full(valid_mask.sum(), z_value)))
-                        filename = f"{output_prefix}/{name}_slice{s}_interp_{i}.txt"
-                        np.savetxt(filename, coords, delimiter=' ', header=f"{name} coordinates slice {s} interpolation {i}")
-                        print(f"Arquivo salvo: {filename}")
+                    # Escrever coordenadas válidas no arquivo
+                    coords = np.column_stack((valid_x, valid_y, z_value))
+                    np.savetxt(f, coords, fmt="%.6f", delimiter=" ")
+
+                print(f"Arquivo {output_filename} salvo com sucesso.")
 
         except AttributeError:
             print(f"Erro: {x_attr} ou {y_attr} não encontrado no arquivo {mat_filename}")
 
-def generate_msh_with_delaunay(output_prefix, msh_filename):
-    """
-    Gera uma malha 3D em formato .msh a partir de arquivos .txt contendo coordenadas,
-    utilizando triangulação Delaunay para conectar pontos adjacentes.
-    """
-    points = []
+    print("Exportação concluída com sucesso.")
+    return output_path
 
-    # Lê os arquivos .txt e armazena as coordenadas
-    for filename in sorted(os.listdir(output_prefix)):
-        if filename.endswith(".txt"):
-            coords = np.loadtxt(os.path.join(output_prefix, filename), delimiter=' ')
-            if coords.size > 0:
-                points.extend(coords[:, :3])
+def main():
+    mat_filename = "./analise.mat"
+    output_dir = "saida"
 
-    points = np.array(points)
+    if not os.path.exists(mat_filename):
+        print(f"Erro: O arquivo {mat_filename} não existe.")
+        return
 
-    # Triangulação Delaunay para conectar pontos adjacentes
-    delaunay_tri = Delaunay(points[:, :2])  # Apenas X, Y para triangulação de superfície
-    cells = [("triangle", delaunay_tri.simplices)]
+    output_txt = save_structures_to_txt(mat_filename, output_dir)
+    if not output_txt:
+        print("Erro durante a exportação para .txt.")
+        return
 
-    # Estrutura da malha com células triangulares para maior precisão
-    mesh = meshio.Mesh(
-        points=points,
-        cells=cells
-    )
+    print(f"Arquivos exportados para o diretório: {output_txt}")
 
-    # Exporta o arquivo `.msh` no formato Gmsh 2.2 em texto ASCII
-    meshio.write(msh_filename, mesh, file_format="gmsh22")
-    print(f"Arquivo .msh salvo como: {msh_filename}")
-
-# Exemplo de uso
-export_to_txt("Patient_1.mat", "output_prefix", voxel_depth=1.0, interpolation_factor=3)
-generate_msh_with_delaunay("output_prefix", "malha_3d_alinhada.msh")
+if __name__ == "__main__":
+    main()
