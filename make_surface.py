@@ -65,7 +65,13 @@ if __name__ == "__main__":
         print(f"Error: File {filename_input} does not exist.")
         sys.exit(1)
 
-    filename_output = os.path.splitext(filename_input)[0] + ".ply"
+    # Create output directory for .ply files
+    output_dir = "./saida/plyFiles"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Define output file path
+    filename_base = os.path.splitext(os.path.basename(filename_input))[0]
+    filename_output = os.path.join(output_dir, f"{filename_base}.ply")
 
     user_input = {
         "print_ply": True,
@@ -94,6 +100,7 @@ if __name__ == "__main__":
     nodes_final, tris_final = points, tris
 
     if user_input["print_ply"]:
+        print(f"Saving .ply file to {filename_output}")
         writeplyfile(filename_output, nodes_final, tris_final + 1)
 
     if user_input["plot"]:
