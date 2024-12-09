@@ -11,10 +11,10 @@ def main():
     print(f"Lendo e processando o arquivo: {mat_filename}")
 
     data = read_mat(mat_filename)
-    output_filename = "analise.mat"
+    #output_filename = "analise.mat"
 
-    print(f"Salvando o arquivo alinhado como: {output_filename}")
-    savemat(output_filename, data)
+    #print(f"Salvando o arquivo alinhado como: {output_filename}")
+    #savemat(output_filename, data)
 
     print("Processamento concluído com sucesso.")
 

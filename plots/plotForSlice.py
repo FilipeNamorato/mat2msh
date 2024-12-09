@@ -52,7 +52,7 @@ def plot_comparison(original_filename, processed_filename, slice_index, plot_ori
 
     # Plotar as estruturas originais (se habilitado)
     if plot_original:
-        original_data = loadmat(original_filename)['SEGsave'][0][0]
+        original_data = loadmat(original_filename)['setstruct'][0][0]
         orig_endoX, orig_endoY, orig_rvendoX, orig_rvendoY, orig_rvepiX, orig_rvepiY = extract_coordinates(original_data)
         
         if slice_index < orig_endoX.shape[2] and valid_slice(orig_endoX, slice_index, min_valid_ratio):
@@ -82,4 +82,4 @@ def plot_comparison(original_filename, processed_filename, slice_index, plot_ori
     plt.show()
 
 # Exemplo de uso
-plot_comparison('Patient_1_aligned.mat', 'analise.mat', slice_index=12, plot_original=True)
+plot_comparison('Patient_1.mat', 'analise_alinhada.mat', slice_index=12, plot_original=True)

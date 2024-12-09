@@ -20,6 +20,8 @@ def save_structures_to_txt(mat_filename, output_dir):
     try:
         data = loadmat(mat_filename, struct_as_record=False, squeeze_me=True)
         setstruct = data['setstruct']
+        slice_thickness = getattr(setstruct, 'SliceThickness', 8.0)  # Obtém SliceThickness ou usa valor padrão
+        slice_gap = getattr(setstruct, 'SliceGap', 0.0)  # Obtém SliceGap ou usa valor padrão
     except Exception as e:
         print(f"Erro ao carregar o arquivo .mat: {e}")
         return None
@@ -52,7 +54,7 @@ def save_structures_to_txt(mat_filename, output_dir):
                     valid_mask = ~np.isnan(x_slice) & ~np.isnan(y_slice)
                     valid_x = x_slice[valid_mask]
                     valid_y = y_slice[valid_mask]
-                    z_value = np.full(valid_x.shape, s)  # Usar o índice da fatia como valor Z
+                    z_value = np.full(valid_x.shape, s * (slice_thickness + slice_gap))  # Ajusta Z com SliceThickness e SliceGap
 
                     # Escrever coordenadas válidas no arquivo
                     coords = np.column_stack((valid_x, valid_y, z_value))
@@ -67,7 +69,7 @@ def save_structures_to_txt(mat_filename, output_dir):
     return output_path
 
 def main():
-    mat_filename = "./analise.mat"
+    mat_filename = "./analise_alinhada.mat"
     output_dir = "saida"
 
     if not os.path.exists(mat_filename):
