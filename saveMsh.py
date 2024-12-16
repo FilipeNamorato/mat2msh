@@ -46,8 +46,7 @@ def save_structures_to_txt(mat_filename, output_dir):
 
             # Cálculo do Z utilizando a lógica de repmat
             print(slice_thickness, slice_gap)
-            z_values = np.tile((1 - np.arange(1, num_slices + 1)) * (slice_thickness + slice_gap), (num_points, 1))
-            #z_values = np.tile((1 - np.arange(1, num_slices + 1)), (num_points, 1))
+            z_values = np.tile((1 - np.arange(1, num_slices + 1)) * (slice_thickness * slice_gap), (num_points, 1))
             print(z_values)
         
             specific_x = 0  # Substitua pelo índice específico de x
