@@ -41,7 +41,19 @@ def save_structures_to_txt(mat_filename, output_dir):
             y_coords = getattr(setstruct, y_attr)
 
             num_slices = x_coords.shape[2] if x_coords.ndim == 3 else x_coords.shape[1]
+            print(num_slices)
+            num_points = x_coords.shape[0]
 
+            # Cálculo do Z utilizando a lógica de repmat
+            print(slice_thickness, slice_gap)
+            z_values = np.tile((1 - np.arange(1, num_slices + 1)) * (slice_thickness + slice_gap), (num_points, 1))
+            #z_values = np.tile((1 - np.arange(1, num_slices + 1)), (num_points, 1))
+            print(z_values)
+        
+            specific_x = 0  # Substitua pelo índice específico de x
+            specific_y = 0  # Substitua pelo índice específico de y
+            if specific_x < z_values.shape[0] and specific_y < z_values.shape[1]:
+                print(f"Z value at position ({specific_x}, {specific_y}): {z_values[specific_x, specific_y]}")
             # Nome do arquivo de saída
             output_filename = os.path.join(output_path, f"Patient_1-{name}.txt")
             with open(output_filename, 'w') as f:
@@ -54,7 +66,7 @@ def save_structures_to_txt(mat_filename, output_dir):
                     valid_mask = ~np.isnan(x_slice) & ~np.isnan(y_slice)
                     valid_x = x_slice[valid_mask]
                     valid_y = y_slice[valid_mask]
-                    z_value = np.full(valid_x.shape, s * (slice_thickness + slice_gap))  # Ajusta Z com SliceThickness e SliceGap
+                    z_value = z_values[valid_mask, s]  # Seleciona os valores de Z correspondentes aos pontos válidos
 
                     # Escrever coordenadas válidas no arquivo
                     coords = np.column_stack((valid_x, valid_y, z_value))
