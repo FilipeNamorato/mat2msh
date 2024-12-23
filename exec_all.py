@@ -7,7 +7,8 @@ def execute_commands(patient_id):
     date_str = datetime.now().strftime("%Y%m%d")
     output_dir = f"./saida/{date_str}"
     os.makedirs(output_dir, exist_ok=True)
-
+    #print(patient_id)
+    #exit(0)
     # Comando 1: Executar main.py
     main_command = f"python3 main.py -m {patient_id}"
     subprocess.run(main_command, shell=True, check=True)

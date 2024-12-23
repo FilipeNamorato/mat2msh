@@ -16,36 +16,36 @@ def adjust_resolution(setstruct, structures, slice_thickness, slice_gap):
 
     Returns:
     - Adjusted setstruct with new scaled coordinates.
-    - Indices of valid slices where all structures have valid data.
+    - Indices of valid slices where at least one structure has valid data.
     """
     resolution_x = getattr(setstruct, 'ResolutionX', 1.0)
     resolution_y = getattr(setstruct, 'ResolutionY', 1.0)
 
-    # Validate slices: all structures must be valid (no NaNs)
+    # Validate slices: at least one structure must be valid (not all NaNs)
     num_slices = None
     valid_slices_mask = None
     for name, (x_attr, y_attr) in structures.items():
         try:
             x_coords = getattr(setstruct, x_attr)
             y_coords = getattr(setstruct, y_attr)
-            
+
             if x_coords.ndim == 3:
                 num_points, _, num_slices = x_coords.shape
-                valid_mask = ~np.isnan(x_coords[:, 0, :]) & ~np.isnan(y_coords[:, 0, :])
+                valid_mask = ~np.isnan(x_coords[:, 0, :]) | ~np.isnan(y_coords[:, 0, :])
             elif x_coords.ndim == 2:
                 num_points, num_slices = x_coords.shape
-                valid_mask = ~np.isnan(x_coords) & ~np.isnan(y_coords)
+                valid_mask = ~np.isnan(x_coords) | ~np.isnan(y_coords)
             else:
                 raise ValueError(f"Unexpected dimensions for {x_attr}: {x_coords.ndim}")
 
-            # Check if all points are valid for each slice
-            slice_validity = valid_mask.all(axis=0)
+            # Check if at least one point is valid for each slice
+            slice_validity = valid_mask.any(axis=0)
 
-            # Combine masks: A slice is valid only if all structures are valid
+            # Combine masks: A slice is valid if at least one structure has valid points
             if valid_slices_mask is None:
                 valid_slices_mask = slice_validity
             else:
-                valid_slices_mask &= slice_validity
+                valid_slices_mask |= slice_validity
 
         except AttributeError:
             print(f"Error: {x_attr} or {y_attr} not found in the .mat file")
@@ -130,7 +130,7 @@ def save_structures_to_txt(mat_filename, output_dir):
             num_points = x_coords.shape[0]
 
             # Create Z values starting at 0 for valid slices
-            z_base = 1 - np.arange(len(valid_indices)) * (slice_thickness + slice_gap)
+            z_base = np.arange(len(valid_indices)) * (slice_thickness + slice_gap)
             z_values = np.tile(z_base, (num_points, 1))
 
             # Output file name
