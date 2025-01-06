@@ -4,3 +4,4 @@ build/
 .vscode
 saida/*
 plyFiles/*
+*.ply
