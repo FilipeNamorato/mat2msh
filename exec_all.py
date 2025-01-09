@@ -6,8 +6,19 @@ import shutil
 def execute_commands(patient_id):
     # Criar a pasta de saída com a data atual
     date_str = datetime.now().strftime("%Y%m%d")
-    output_dir = f"./saida/{date_str}"
+    output_dir = f"saida/{date_str}/{patient_id}"
     os.makedirs(output_dir, exist_ok=True)
+
+    # Caminhos para superfícies e arquivos intermediários
+    vtk_srf = f"{output_dir}/vtkFiles"
+    msh_srf = f"{output_dir}/mshFiles"
+    os.makedirs(vtk_srf, exist_ok=True)
+    os.makedirs(msh_srf, exist_ok=True)
+
+    # Gmsh e scripts de geração
+    gmsh = "/home/filipe/.local/bin/gmsh"
+    biv_mesh_geo = "./scripts/biv_mesh.geo"
+    biv_msh_geo = "./scripts/biv_msh.geo"
 
     # Comando 1: Executar main.py
     try:
@@ -28,10 +39,10 @@ def execute_commands(patient_id):
 
     # Comando 3: Gerar superfícies
     surface_files = [
-        f"{output_dir}/{patient_id}-LVEndo.txt",
-        f"{output_dir}/{patient_id}-LVEpi.txt",
-        f"{output_dir}/{patient_id}-RVEndo.txt",
-        f"{output_dir}/{patient_id}-RVEpi.txt",
+        f"./saida/{date_str}/{patient_id}-LVEndo.txt",
+        f"./saida/{date_str}/{patient_id}-LVEpi.txt",
+        f"./saida/{date_str}/{patient_id}-RVEndo.txt",
+        f"./saida/{date_str}/{patient_id}-RVEpi.txt",
     ]
 
     for surface_file in surface_files:
@@ -42,7 +53,7 @@ def execute_commands(patient_id):
             print(f"Erro ao gerar superfície para {surface_file}: {e}")
             return
 
-    # Comando 4: Converter arquivos PLY para VTK
+        # Passo 4: Converter arquivos PLY para VTK
     ply_files = [
         f"./saida/plyFiles/{patient_id}-RVEpi.ply",
         f"./saida/plyFiles/{patient_id}-RVEndo.ply",
@@ -51,68 +62,64 @@ def execute_commands(patient_id):
     ]
 
     vtk_outputs = [
-        f"./convertPly2VTK/result/outputRVEpi.vtk",
-        f"./convertPly2VTK/result/outputRVEndo.vtk",
-        f"./convertPly2VTK/result/outputLVEpi.vtk",
-        f"./convertPly2VTK/result/outputLVEndo.vtk",
+        f"./saida/{date_str}/{patient_id}/vtkFiles/{patient_id}-RVEpi.vtk",
+        f"./saida/{date_str}/{patient_id}/vtkFiles/{patient_id}-RVEndo.vtk",
+        f"./saida/{date_str}/{patient_id}/vtkFiles/{patient_id}-LVEpi.vtk",
+        f"./saida/{date_str}/{patient_id}/vtkFiles/{patient_id}-LVEndo.vtk",
     ]
 
+    vtk_output_dir = f"./saida/{date_str}/{patient_id}/vtkFiles"
+    os.makedirs(vtk_output_dir, exist_ok=True)
+
     for ply_file, vtk_output in zip(ply_files, vtk_outputs):
+        if not os.path.exists(ply_file):
+            print(f"Erro: Arquivo PLY {ply_file} não encontrado.")
+            return
         try:
             ply_to_vtk_command = f"./convertPly2VTK/build/PlyToVtk {ply_file} {vtk_output}"
             subprocess.run(ply_to_vtk_command, shell=True, check=True)
+            print(f"Arquivo VTK gerado com sucesso: {vtk_output}")
         except subprocess.CalledProcessError as e:
             print(f"Erro ao converter {ply_file} para {vtk_output}: {e}")
             return
 
-    # Comando 5: Gerar arquivo .msh usando os arquivos .vtk
-    gmsh = "/home/filipe/.local/bin/gmsh"
-    if not os.path.exists(gmsh):
-        print("Erro: Gmsh não encontrado no caminho especificado.")
-        return
-    print("teste")
-    
-    vtk_inputs = [
-        vtk_outputs[0],  # outputRVEpi.vtk
-        vtk_outputs[1],  # outputRVEndo.vtk
-        vtk_outputs[2],  # outputLVEpi.vtk
-        vtk_outputs[3],  # outputLVEndo.vtk
-    ]
+   # Passo 5: Geração do arquivo `.msh` usando Gmsh
 
-    
-    msh_file = f"{output_dir}/{patient_id}.msh"
-    geo_script = "./scripts/biv_mesh.geo"
-
-    
-    # Verificar se todos os arquivos existem
-    required_files = vtk_inputs + [geo_script]
-    for file_path in required_files:
-        if not os.path.exists(file_path):
-            print(f"Erro: Arquivo necessário não encontrado - {file_path}")
-            return
-
-    # Comando para rodar o Gmsh
-    gmsh_command = [
-        gmsh,
-        "-3",
-        vtk_inputs[3],  # LVEndo como entrada principal
-        "-merge", vtk_inputs[0], vtk_inputs[1], vtk_inputs[2], geo_script,
-        "-o", msh_file,
-    ]
+    lv_endo = f"{vtk_srf}/Patient_{patient_id}-LVEndo-Frame_1.vtk"
+    rv_endo = f"{vtk_srf}/Patient_{patient_id}-RVEndo-Frame_1.vtk"
+    rv_epi = f"{vtk_srf}/Patient_{patient_id}-RVEpi-Frame_1.vtk"
+    scar_vtk = f"{vtk_srf}/Patient_{patient_id}_scar.vtk"
+    msh = f"{msh_srf}/Patient_{patient_id}.msh"
+    msh_srf_heart = f"{msh_srf}/Patient_{patient_id}_surf.msh"
+    msh_heart = f"{msh_srf}/Patient_{patient_id}_model.msh"
+    out_log = f"{msh_srf}/Patient_{patient_id}.out.txt"
+    stl_scar = f"{output_dir}/stlFiles/Patient_scar.stl"
 
     try:
-        result = subprocess.run(gmsh_command, stderr=subprocess.PIPE, text=True)
-        if result.returncode != 0:
-            print(f"Erro ao executar o Gmsh para {patient_id}. Detalhes: {result.stderr}")
-            return
-        print(f"Arquivo .msh gerado com sucesso para {patient_id}: {msh_file}")
-    except subprocess.CalledProcessError as e:
-        print(f"Erro ao executar o Gmsh: {e}")
+        # Gerar o arquivo .msh com superfícies do coração
+        os.system('{} -3 {} -merge {} {} {} -o {} 2>&1 {}'.format(
+            gmsh, lv_endo, rv_endo, rv_epi, biv_mesh_geo, msh, out_log))
+
+        # Gerar o arquivo .msh das superfícies com merge de fibrose (quando aplicável)
+        os.system('{} -3 {} -merge {} {} {} -o {}'.format(
+            gmsh, lv_endo, rv_endo, rv_epi, biv_mesh_geo, msh_srf_heart))
+
+        # Gerar o modelo final combinando superfícies e fibrose
+        os.system('{} -3 {} -merge {} -o {}'.format(
+            gmsh, msh_srf_heart, biv_msh_geo, msh_heart))
+
+        # Limpar arquivos temporários (opcional)
+        if os.path.exists(stl_scar):
+            os.system('rm {}'.format(stl_scar))
+
+        print(f"Modelo gerado com sucesso: {msh_heart}")
+
+    except Exception as e:
+        print(f"Erro ao gerar modelo: {e}")
         return
 
-    print("Teste")
-    exit(0)
     print("Todos os comandos foram executados com sucesso!")
+
 
 # Exemplo de uso
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
-Mesh.CharacteristicLengthMax = .4;
-Mesh.CharacteristicLengthMin = .4;
+Mesh.CharacteristicLengthMax = 3;
+Mesh.CharacteristicLengthMin = 1;
 //Mesh.CharacteristicLengthFactor = .4;
 
 Geometry.HideCompounds = 0;
