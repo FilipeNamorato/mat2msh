@@ -11,6 +11,8 @@ This project aims to build a pipeline to generate 3D meshes of the heart from se
 
 ## Installation
 
-1. Clone this repository:
+1. Run:
    ```sh
+   python3 exec_all.py -i ./Patient_1.mat
    ```
+
