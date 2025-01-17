@@ -122,7 +122,8 @@ def execute_commands(input_file):
     print("========================================================================================")
     print("Finished processing the patient data.")
     print("========================================================================================")
-
+    os.remove("./aligned_patient.mat")
+    
 # Main entry point
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Execute pipeline for processing a .mat file.")
