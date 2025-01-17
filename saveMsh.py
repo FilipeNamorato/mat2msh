@@ -160,8 +160,8 @@ def save_structures_to_txt(mat_filename, output_dir):
     return output_path
 
 def main():
-    mat_filename = "./analise_alinhada.mat"
-    output_dir = "saida"
+    mat_filename = "./aligned_patient.mat"
+    output_dir = "output"
 
     if not os.path.exists(mat_filename):
         print(f"Error: The file {mat_filename} does not exist.")

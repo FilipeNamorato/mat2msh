@@ -3,5 +3,6 @@ __pycache__/
 build/
 .vscode
 saida/*
+output/*
 plyFiles/*
 *.ply

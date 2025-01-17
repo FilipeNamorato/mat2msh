@@ -118,7 +118,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Create output directory for .ply files
-    output_dir = "./saida/plyFiles"
+    output_dir = "./output/plyFiles"
     os.makedirs(output_dir, exist_ok=True)
 
     # Define output file path
