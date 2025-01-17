@@ -2,8 +2,12 @@ import os
 from datetime import datetime
 import subprocess
 from readMat import read_mat
+import argparse
 
-def execute_commands(patient_id):
+def execute_commands(input_file):
+    # Fixed patient ID for processing
+    patient_id = "Patient_1"
+
     # Create the output folder with the current date
     date_str = datetime.now().strftime("%Y%m%d")
     output_dir = f"output/{date_str}/{patient_id}"
@@ -22,23 +26,23 @@ def execute_commands(patient_id):
 
     print("========================================================================================")
     # Step 1: Process the .mat file
-    filename = patient_id + ".mat"
+    print(f"Processing the file: {input_file}")
 
     try:
         # Attempt to process the .mat file
-        read_mat(filename)
-        print("Mat file processed successfully.")
+        read_mat(input_file)
+        print("MAT file processed successfully.")
     except FileNotFoundError:
         # Handle the case where the file does not exist
-        print(f"Error: The file {filename} does not exist.")
+        print(f"Error: The file {input_file} does not exist.")
         return
     except ValueError as ve:
         # Handle cases where the file content is invalid
-        print(f"Error: Invalid content in {filename}: {ve}")
+        print(f"Error: Invalid content in {input_file}: {ve}")
         return
     except Exception as e:
         # Handle any other unforeseen errors
-        print(f"Unexpected error while processing {filename}: {e}")
+        print(f"Unexpected error while processing {input_file}: {e}")
         return
     print("========================================================================================")
     # Step 2: Execute saveMsh.py
@@ -94,7 +98,7 @@ def execute_commands(patient_id):
             print(f"Error converting {ply_file} to {stl_output}: {e}")
             return
 
-    # Code before `exit(0)`
+    # Final Processing
     print("### Final Processing ###")
     print(f"STL files generated successfully in: {stl_srf}")
     print("Ending the script before executing Gmsh and other steps.")
@@ -115,10 +119,15 @@ def execute_commands(patient_id):
     except Exception as e:
         print(f"Error generating model: {e}")
         return
+    print("========================================================================================")
+    print("Finished processing the patient data.")
+    print("========================================================================================")
 
-    print("All commands executed successfully!")
-
-# Example usage
+# Main entry point
 if __name__ == "__main__":
-    patient_id = "Patient_1"
-    execute_commands(patient_id)
+    parser = argparse.ArgumentParser(description="Execute pipeline for processing a .mat file.")
+    parser.add_argument("-i", "--input_file", required=True, help="Full path to the input .mat file")
+
+    args = parser.parse_args()
+
+    execute_commands(args.input_file)
