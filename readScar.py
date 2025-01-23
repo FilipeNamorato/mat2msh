@@ -1,67 +1,81 @@
-import numpy as np
 from scipy.io import loadmat
+import matplotlib.pyplot as plt
+import numpy as np
 
 def readScar():
-    mat_filename = "PatientData.mat"
+    mat_filename = "Patient_1_new.mat"
     print(f"Reading file: {mat_filename}")
-    data = loadmat(mat_filename, struct_as_record=False, squeeze_me=True)
+    data = loadmat(mat_filename)  # Carrega o arquivo
     setstruct = data['setstruct']
+    
+    # Acessando o campo 'Roi' e os subcampos dinamicamente
+    rois = setstruct[0][0]['Roi']
 
-    print("Data structure loaded successfully.")
+    records = []
+    for idx, roi in enumerate(rois):
+        print(f"Processando ROI {idx+1}...")
+        try:
+            x_coords = roi['X'] if 'X' in roi.dtype.names else None
+            y_coords = roi['Y'] if 'Y' in roi.dtype.names else None
+            z_values = roi['Z'] if 'Z' in roi.dtype.names else None
+            roi_name = roi['Name'][0] if 'Name' in roi.dtype.names else f"ROI-{idx+1}"
+            roi_name = str(roi_name)
 
-    # Extrair dados do ROI
-    def extract_roi_data(setstruct):
-        """
-        Extrai dados do ROI incluindo coordenadas e metadados.
+            # Verificar se os tamanhos de X, Y e Z são consistentes
+            if x_coords is None or y_coords is None or z_values is None:
+                print(f"Erro: Dados incompletos para ROI {roi_name}")
+                continue
 
-        :param setstruct: Estrutura carregada do .mat contendo o ROI.
-        :return: Lista de registros do ROI com campos relevantes.
-        """
-        roi_data = getattr(setstruct, 'Roi', None)
-        if roi_data is None:
-            raise ValueError("'Roi' field not found in setstruct.")
+            if len(x_coords) != len(y_coords) or len(x_coords) != len(z_values):
+                print(f"Erro: Tamanhos inconsistentes para ROI {roi_name}")
+                continue
 
-        records = []
-
-        # Verificar se roi_data possui múltiplos registros ou um único
-        if isinstance(roi_data, (list, np.ndarray)):
-            for record in roi_data:
-                x_coords = getattr(record, 'X', None)  # Campo X
-                y_coords = getattr(record, 'Y', None)  # Campo Y
-                z_value = getattr(record, 'Z', None)  # Exemplo de outro campo
-                roi_name = getattr(record, 'Name', None)  # Nome do ROI
-
+            # Processar cada fatia de Z com seus X e Y correspondentes
+            for i in range(len(z_values)):
+                x = x_coords[i].flatten()
+                y = y_coords[i].flatten()
+                z = float(z_values[i][0][0])  # Extrair o valor escalar de Z
                 records.append({
-                    'X': x_coords,
-                    'Y': y_coords,
-                    'Z': z_value,
-                    'Name': roi_name
+                    'X': x,
+                    'Y': y,
+                    'Z': np.full_like(x, z),
+                    'Name': f"{roi_name} - Fatia {i+1}"
                 })
-        else:  # Caso seja um único objeto
-            x_coords = getattr(roi_data, 'X', None)  # Campo X
-            y_coords = getattr(roi_data, 'Y', None)  # Campo Y
-            z_value = getattr(roi_data, 'Z', None)  # Exemplo de outro campo
-            roi_name = getattr(roi_data, 'Name', None)  # Nome do ROI
+                print(f"Adicionado ROI {roi_name}, Fatia {i+1}: Z={z}")
+        except Exception as e:
+            print(f"Erro ao processar ROI {idx+1}: {e}")
 
-            records.append({
-                'X': x_coords,
-                'Y': y_coords,
-                'Z': z_value,
-                'Name': roi_name
-            })
+    return records
 
-        return records
+def plot_all_fatias(roi_records):
+    """
+    Plota todos os pontos das fatias em 3D.
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
 
-    # Obter dados do ROI
-    roi_records = extract_roi_data(setstruct)
+    for idx, roi in enumerate(roi_records):
+        try:
+            x_coords = roi['X']
+            y_coords = roi['Y']
+            z_coords = roi['Z']
+            roi_name = roi['Name']
 
-    # Exemplo de iteração sobre os registros extraídos
-    for i, roi in enumerate(roi_records):
-        x_shape = roi['X'].shape if roi['X'] is not None else "None"
-        y_shape = roi['Y'].shape if roi['Y'] is not None else "None"
-        print(f"ROI {i}: Name={roi['Name']}, X Shape={x_shape}, Y Shape={y_shape}")
+            # Logs de depuração
+            print(f"Plotando ROI {idx+1}: X={x_coords.shape}, Y={y_coords.shape}, Z={z_coords.shape}")
 
-    return roi_records
+            # Plota os pontos da fatia
+            ax.scatter(x_coords, y_coords, z_coords, label=roi_name, s=10)
+        except Exception as e:
+            print(f"Erro ao plotar ROI {idx+1}: {e}")
+
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    plt.title("Visualização 3D de Todas as Fatias (ROI)")
+    plt.legend(loc='best')
+    plt.show()
 
 if __name__ == "__main__":
     roi_records = readScar()
+    plot_all_fatias(roi_records)
