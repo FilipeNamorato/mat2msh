@@ -1,6 +1,7 @@
 from scipy.io import loadmat
 import numpy as np
 import os
+import subprocess
 
 # Para usar DBSCAN, instale scikit-learn se ainda não tiver: pip install scikit-learn
 from sklearn.cluster import DBSCAN
@@ -141,9 +142,10 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
     for lbl, pts in clusters.items():
         filename = os.path.join(output_dir, f"cluster_{lbl}.txt")
         with open(filename, "w") as file:
-            file.write("X,Y,Z\n")
+            #file.write("X,Y,Z\n")
             for x, y, z in pts:
-                file.write(f"{x},{y},{z}\n")
+                z*=8.64
+                file.write(f"{x} {y} {z}\n")
         print(f"Cluster {lbl} salvo em: {filename}")
 
 if __name__ == "__main__":
@@ -158,3 +160,35 @@ if __name__ == "__main__":
 
     # Salvar cada cluster resultante em um arquivo de texto individual
     save_clusters_to_txt(clusters, "clusters_dbscan")
+
+     # Step 3: Generate surfaces
+    surface_files = [
+        f"./clusters_dbscan/cluster_0.txt",
+    ]
+
+    for surface_file in surface_files:
+        try:
+            surface_command = f"python3 make_surface.py {surface_file}"
+            subprocess.run(surface_command, shell=True, check=True)
+        except Exception as e:
+            print(f"Erro ao gerar superfície para {surface_file}: {e}")
+
+        # Step 4: Convert PLY files to STL
+    ply_files = [
+        f"./output/plyFiles/cluster_0.ply",
+    ]
+
+    stl_outputs = [
+        f"./output/cluster_0.stl",
+    ]
+
+    for ply_file, stl_output in zip(ply_files, stl_outputs):
+        if not os.path.exists(ply_file):
+            print(f"Error: PLY file {ply_file} not found.")
+        try:
+            ply_to_stl_command = f"./convertPly2STL/build/PlyToStl {ply_file} {stl_output}"
+            subprocess.run(ply_to_stl_command, shell=True, check=True)
+            print(f"STL file generated successfully: {stl_output}")
+        except Exception as e:
+            print(f"Error converting {ply_file} to {stl_output}: {e}")
+
