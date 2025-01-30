@@ -6,3 +6,5 @@ saida/*
 output/*
 plyFiles/*
 *.ply
+clusters_dbscan/*
+fatias_txt/*
