@@ -7,16 +7,12 @@ from mpl_toolkits.mplot3d import Axes3D
 import argparse
 
 def writeplyfile(writefile,tet_nodes, tet_tot):
-    """ Write triangularized mesh 0-indexed from input data 1-indexed"""
     in_size = tet_tot.shape
-    # If only one triangle/quad
     if len(in_size)==1:
         if in_size[0]>0:
-            # Kept as in the original (possible typo)
-            tet_tot=tet_tot.reshapimport((1,in_size[0]))  
-             
+            tet_tot=tet_tot.reshape((1,in_size[0]))  
+
     FILE=open(writefile,"w")
- 
     FILE.write('ply \n')
     FILE.write('format ascii 1.0 \n')
     FILE.write('comment this is a surface \n')
@@ -52,7 +48,6 @@ def writeplyfile(writefile,tet_nodes, tet_tot):
     return
 
 def make_triangle_connection(patch):
-    """Create triangular connections between slices."""
     n_strips = patch["height"] - 1
     n_in_strip = patch["width"]
     tris = np.zeros((n_strips * n_in_strip * 2, 3), dtype=int)
@@ -70,10 +65,10 @@ def make_triangle_connection(patch):
     return tris
 
 def calculate_normals(points,faces,node_id=None):
-    """ Calculate unit length normals of triangle faces or one point"""
-    face_normals=np.cross( points[faces[:,1],:]-points[faces[:,0],:],
-                           points[faces[:,2],:]-points[faces[:,0],:] )
- 
+    face_normals=np.cross(
+        points[faces[:,1],:] - points[faces[:,0],:],
+        points[faces[:,2],:] - points[faces[:,0],:]
+    )
     if node_id is None:
         return face_normals
     else:
@@ -84,7 +79,7 @@ def calculate_normals(points,faces,node_id=None):
             face_normal_at_node /= normal_length
         return face_normal_at_node
 
-def cover_apex(nodes_renum, tris, patch,principal_axis=0):
+def cover_apex(nodes_renum, tris, patch, principal_axis=0):
     nodes_covered = np.zeros((len(nodes_renum)+1,3))
     n_in_strip = patch["width"]
     tris_covered = np.zeros((len(tris)+n_in_strip,3))
@@ -97,7 +92,6 @@ def cover_apex(nodes_renum, tris, patch,principal_axis=0):
     tris_covered[n_in_strip:,:]=tris+1
     for i in range(n_in_strip):
         tris_covered[i,:] = [0,i+1,(i+1)%n_in_strip+1]
- 
     return nodes_covered, tris_covered
 
 #Close both ends
@@ -116,7 +110,6 @@ def cover_both_ends(nodes_renum, tris, patch, principal_axis=0):
      
     # Create new nodes
     nodes_covered = np.zeros((len(nodes_renum) + 2, 3))
-    # idx0=apex1, idx1=apex2
     nodes_covered[2:, :] = nodes_renum
     nodes_covered[0, :]  = apex1
     nodes_covered[1, :]  = apex2
@@ -140,7 +133,6 @@ def cover_both_ends(nodes_renum, tris, patch, principal_axis=0):
 
     return nodes_covered, tris_covered
 
-
 def parse_arguments():
     """
     Read command line arguments:
@@ -154,7 +146,7 @@ def parse_arguments():
     return parser.parse_args()
 
 if __name__ == "__main__":
-    # Now we use parse_arguments to define which file to use and whether to close 1 or 2 ends
+
     args = parse_arguments()
     filename_input = args.input_file
     cover_both = args.cover_both_ends
@@ -171,20 +163,25 @@ if __name__ == "__main__":
     filename_base = os.path.splitext(os.path.basename(filename_input))[0]
     filename_output = os.path.join(output_dir, f"{filename_base}.ply")
 
-    # Keeping the original configuration dictionary
-    # We just use the cover_both flag as a definer:
+    # >>> Boolean variable to invert Z if True <<<
+    invert_z = True  # Change to False if you do not want to invert
+    # >>> -------------------------------------- <<<
+
     user_input = {
         "print_ply": True,
         "principal_axis": 2,
         "reshuffle_point_order": True,
-        "cover_apex": not cover_both,  # if we pass --cover-both-ends, cover_apex=False
+        "cover_apex": not cover_both,
         "plot": False
     }
 
     print(f"Reading points from {filename_input}")
     points0 = np.loadtxt(filename_input)
 
-    # Reshuffle point order
+    # Invert the Z coordinate if invert_z is True
+    if invert_z:
+        points0[:,2] = -points0[:,2]
+
     if user_input["reshuffle_point_order"]:
         points = points0[::-1,:]
     else:
@@ -227,6 +224,7 @@ if __name__ == "__main__":
             this_dist = np.sqrt(np.sum((nodes_to_check[i,:]-nodes_to_check[j,:])**2))
             if this_dist<err_tol:
                 new_indices[j] = new_indices[i]
+
     good_tris = np.where(np.abs(np.sqrt((normals ** 2).sum(-1)))>err_tol)[0]
      
     # Remove bad tris
