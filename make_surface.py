@@ -4,7 +4,7 @@ import numpy as np
 import sys, os
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-
+import argparse
 
 def writeplyfile(writefile,tet_nodes, tet_tot):
     """ Write triangularized mesh 0-indexed from input data 1-indexed"""
@@ -12,7 +12,8 @@ def writeplyfile(writefile,tet_nodes, tet_tot):
     # If only one triangle/quad
     if len(in_size)==1:
         if in_size[0]>0:
-            tet_tot=tet_tot.reshapimport((1,in_size[0]))
+            # Kept as in the original (possible typo)
+            tet_tot=tet_tot.reshapimport((1,in_size[0]))  
              
     FILE=open(writefile,"w")
  
@@ -50,7 +51,6 @@ def writeplyfile(writefile,tet_nodes, tet_tot):
     FILE.close()
     return
 
-
 def make_triangle_connection(patch):
     """Create triangular connections between slices."""
     n_strips = patch["height"] - 1
@@ -69,29 +69,25 @@ def make_triangle_connection(patch):
 
     return tris
 
-
 def calculate_normals(points,faces,node_id=None):
     """ Calculate unit length normals of triangle faces or one point"""
     face_normals=np.cross( points[faces[:,1],:]-points[faces[:,0],:],
                            points[faces[:,2],:]-points[faces[:,0],:] )
  
     if node_id is None:
-        #face_normals /= np.sqrt((face_normals ** 2).sum(-1))[..., np.newaxis]
         return face_normals
     else:
         ix,iy=np.where(faces==node_id)
         face_normal_at_node = np.sum(face_normals[ix,:],axis=0)
-        normal_length = np.sqrt((face_normal_at_node ** 2).sum(-1))#[..., np.newaxis]
+        normal_length = np.sqrt((face_normal_at_node ** 2).sum(-1))
         if normal_length != 0.0:
             face_normal_at_node /= normal_length
-         
         return face_normal_at_node
 
 def cover_apex(nodes_renum, tris, patch,principal_axis=0):
     nodes_covered = np.zeros((len(nodes_renum)+1,3))
     n_in_strip = patch["width"]
     tris_covered = np.zeros((len(tris)+n_in_strip,3))
-     
      
     # Assume apex has largest principal axis coordinate
     p_coor = np.mean(nodes_renum[:patch["width"],:],axis=0)
@@ -102,17 +98,67 @@ def cover_apex(nodes_renum, tris, patch,principal_axis=0):
     for i in range(n_in_strip):
         tris_covered[i,:] = [0,i+1,(i+1)%n_in_strip+1]
  
+    return nodes_covered, tris_covered
+
+#Close both ends
+def cover_both_ends(nodes_renum, tris, patch, principal_axis=0):
+    n_in_strip = patch["width"]
+    n_slices   = patch["height"]
      
+    # Apex1 in the first ring
+    apex1 = np.mean(nodes_renum[:n_in_strip, :], axis=0)
+    apex1[principal_axis] += 0.0
+     
+    # Apex2 in the last ring
+    start_last_ring = (n_slices - 1)*n_in_strip
+    apex2 = np.mean(nodes_renum[start_last_ring:start_last_ring + n_in_strip, :], axis=0)
+    apex2[principal_axis] += 0.0
+     
+    # Create new nodes
+    nodes_covered = np.zeros((len(nodes_renum) + 2, 3))
+    # idx0=apex1, idx1=apex2
+    nodes_covered[2:, :] = nodes_renum
+    nodes_covered[0, :]  = apex1
+    nodes_covered[1, :]  = apex2
+     
+    # We need +2*n_in_strip triangles
+    tris_covered = np.zeros((len(tris) + 2*n_in_strip, 3))
+    tris_covered[2*n_in_strip:, :] = tris + 2
+     
+    # Close first ring with apex1
+    for i in range(n_in_strip):
+        i0 = i + 2
+        i1 = ((i + 1) % n_in_strip) + 2
+        tris_covered[i, :] = [0, i0, i1]
+
+    # Close last ring with apex2
+    start_last_ring_new = start_last_ring + 2
+    for i in range(n_in_strip):
+        j0 = start_last_ring_new + i
+        j1 = start_last_ring_new + ((i + 1) % n_in_strip)
+        tris_covered[n_in_strip + i, :] = [1, j0, j1]
+
     return nodes_covered, tris_covered
 
 
-if __name__ == "__main__":
-    # Check arguments
-    if len(sys.argv) != 2:
-        print("Usage: python make_surface.py <input.txt>")
-        sys.exit(1)
+def parse_arguments():
+    """
+    Read command line arguments:
+    - input_file: .txt file with (X Y Z)
+    - --cover-both-ends: bool indicating whether to close both ends
+    """
+    parser = argparse.ArgumentParser(description="Generate surface from points. Default: only apex is closed.")
+    parser.add_argument("input_file", help="Text file with point coordinates (X Y Z).")
+    parser.add_argument("--cover-both-ends", action="store_true",
+                        help="Close both ends of the geometry instead of just one apex.")
+    return parser.parse_args()
 
-    filename_input = sys.argv[1]
+if __name__ == "__main__":
+    # Now we use parse_arguments to define which file to use and whether to close 1 or 2 ends
+    args = parse_arguments()
+    filename_input = args.input_file
+    cover_both = args.cover_both_ends
+
     if not os.path.exists(filename_input):
         print(f"Error: File {filename_input} does not exist.")
         sys.exit(1)
@@ -125,14 +171,17 @@ if __name__ == "__main__":
     filename_base = os.path.splitext(os.path.basename(filename_input))[0]
     filename_output = os.path.join(output_dir, f"{filename_base}.ply")
 
+    # Keeping the original configuration dictionary
+    # We just use the cover_both flag as a definer:
     user_input = {
         "print_ply": True,
         "principal_axis": 2,
         "reshuffle_point_order": True,
-        "cover_apex": True,
-        "plot": False,
+        "cover_apex": not cover_both,  # if we pass --cover-both-ends, cover_apex=False
+        "plot": False
     }
 
+    print(f"Reading points from {filename_input}")
     points0 = np.loadtxt(filename_input)
 
     # Reshuffle point order
@@ -146,7 +195,6 @@ if __name__ == "__main__":
     n_per_slice = np.sum(points[:,principal_axis]==slice_position_test)
     n_slices = int(len(points)/n_per_slice)
 
-
     if n_slices * n_per_slice != len(points):
         print("Error: Inconsistent number of points per slice.")
         sys.exit(1)
@@ -154,18 +202,22 @@ if __name__ == "__main__":
     patch = {"height": n_slices, "width": n_per_slice}
     tris = make_triangle_connection(patch)
 
-    # Cover apex hole
-    if user_input["cover_apex"]:
-        nodes_final, tris_final = cover_apex(points, tris, patch,principal_axis=principal_axis)
+    # Decide whether to close 2 ends, 1 end or none
+    if cover_both:
+        # Close both ends
+        nodes_final, tris_final = cover_both_ends(points, tris, patch, principal_axis=principal_axis)
+    elif user_input["cover_apex"]:
+        # Close only one apex
+        nodes_final, tris_final = cover_apex(points, tris, patch, principal_axis=principal_axis)
     else:
+        # Do not close anything
         nodes_final = points
         tris_final = tris
 
-    # Check data for degenerate tris
+    # Check data for degenerate tris (kept as in the original)
     normals= calculate_normals(nodes_final,tris_final.astype(int),node_id=None)
     err_tol = 0.000001
-     
-    # Removes duplicate indices (unfinished) 
+
     bad_tris = np.where(np.abs(np.sqrt((normals ** 2).sum(-1)))<err_tol)[0]
     bad_indices = tris_final[bad_tris,:].astype(int).flatten()
     nodes_to_check = nodes_final[bad_indices,:]
@@ -175,16 +227,12 @@ if __name__ == "__main__":
             this_dist = np.sqrt(np.sum((nodes_to_check[i,:]-nodes_to_check[j,:])**2))
             if this_dist<err_tol:
                 new_indices[j] = new_indices[i]
-     
-    #tris_final[bad_tris,:] = new_indices.reshape((len(bad_indices)/3,3))
-    #nodes_final[bad_indices,:] = nodes_final[new_indices,:]
-     
     good_tris = np.where(np.abs(np.sqrt((normals ** 2).sum(-1)))>err_tol)[0]
      
     # Remove bad tris
     tris_final = tris_final[good_tris,:]
  
-    # Remove bad nodes
+    # Remove bad nodes (kept as in the original)
     tris_final_temp = tris_final.flatten()
     for i in range(tris_final.size):
         node_i = tris_final_temp[i]
@@ -194,10 +242,12 @@ if __name__ == "__main__":
                 tris_final_temp[i] = new_indices[indice_i]
     tris_final = tris_final_temp.reshape(tris_final.shape)
 
+    # Save .ply
     if user_input["print_ply"]:
         print(f"Saving .ply file to {filename_output}")
         writeplyfile(filename_output, nodes_final, tris_final + 1)
 
+    # Plot if necessary (kept as in the original, but was inactive)
     if user_input["plot"]:
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")

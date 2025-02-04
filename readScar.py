@@ -168,7 +168,7 @@ if __name__ == "__main__":
 
     for surface_file in surface_files:
         try:
-            surface_command = f"python3 make_surface.py {surface_file}"
+            surface_command = f"python3 make_surface.py {surface_file} --cover-both-ends"
             subprocess.run(surface_command, shell=True, check=True)
         except Exception as e:
             print(f"Erro ao gerar superfície para {surface_file}: {e}")
