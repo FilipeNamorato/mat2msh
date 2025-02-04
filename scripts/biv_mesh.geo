@@ -33,15 +33,17 @@ ss[] = Surface "*";
 S_LV = news; Compound Surface(S_LV) = ss[0];
 S_RV = news; Compound Surface(S_RV) = ss[1];
 S_epi = news; Compound Surface(S_epi) = ss[2];
-Physical Surface("LV") = {S_LV};
-Physical Surface("RV") = {S_RV};
-Physical Surface("EPI") = {S_epi};
 
 LL_base = newll; Line Loop(LL_base) = {L_LV_base, L_RV_base, L_epi_base};
-S_base = news; Plane Surface(S_base) = {LL_base};
-Physical Surface("BASE") = {S_base};
+S_base  = news; Plane Surface(S_base) = {LL_base};
 
 SL_wall = newsl; Surface Loop(SL_wall) = {S_LV, S_RV, S_epi, S_base};
-V_wall = newv; Volume(V_wall) = {SL_wall};
-Physical Volume("WALL") = {V_wall};
+V_wall  = newv;  Volume(V_wall)       = {SL_wall};
+
+Physical Surface("BASE", 10) = {S_base};
+Physical Surface("LV",   20) = {S_LV};
+Physical Surface("RV",   30) = {S_RV};
+Physical Surface("EPI",  40) = {S_epi};
+Physical Volume("WALL",  1)  = {V_wall};
+
 Coherence;
