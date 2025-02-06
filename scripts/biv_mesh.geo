@@ -41,8 +41,8 @@ SL_wall = newsl; Surface Loop(SL_wall) = {S_LV, S_RV, S_epi, S_base};
 V_wall  = newv;  Volume(V_wall)       = {SL_wall};
 
 Physical Surface("BASE", 10) = {S_base};
-Physical Surface("LV",   20) = {S_LV};
-Physical Surface("RV",   30) = {S_RV};
+Physical Surface("LV",   30) = {S_LV};
+Physical Surface("RV",   20) = {S_RV};
 Physical Surface("EPI",  40) = {S_epi};
 Physical Volume("WALL",  1)  = {V_wall};
 
