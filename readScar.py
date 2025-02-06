@@ -217,7 +217,7 @@ if __name__ == "__main__":
         if not os.path.exists(ply_file):
             print(f"Error: PLY file {ply_file} not found.")
         try:
-            ply_to_stl_command = f"./convertPly2STL/build/PlyToStl {ply_file} {stl_output}"
+            ply_to_stl_command = f"./convertPly2STL/build/PlyToStl {ply_file} {stl_output} True"
             subprocess.run(ply_to_stl_command, shell=True, check=True)
             print(f"STL file generated successfully: {stl_output}")
         except Exception as e:

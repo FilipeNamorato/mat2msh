@@ -15,6 +15,7 @@ int main(int argc, char *argv[])
 
     std::string inputFileName = argv[1];
     std::string outputFileName = argv[2];
+    bool flagScar = argv[3];
 
     // Leitura do arquivo PLY
     vtkSmartPointer<vtkPLYReader> reader = vtkSmartPointer<vtkPLYReader>::New();
@@ -24,7 +25,12 @@ int main(int argc, char *argv[])
     // Suavização da malha
     vtkSmartPointer<vtkSmoothPolyDataFilter> smoother = vtkSmartPointer<vtkSmoothPolyDataFilter>::New();
     smoother->SetInputData(reader->GetOutput());
-    smoother->SetRelaxationFactor(0.02);
+
+    if(flagScar)
+        smoother->SetRelaxationFactor(0.0002);
+    else
+        smoother->SetRelaxationFactor(0.02);
+            
     smoother->SetNumberOfIterations(400);
     smoother->BoundarySmoothingOn();
     smoother->Update();

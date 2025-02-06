@@ -108,6 +108,7 @@ def execute_commands(input_file):
     lv_endo = f"{stl_srf}/{patient_id}-LVEndo.stl"
     rv_endo = f"{stl_srf}/{patient_id}-RVEndo.stl"
     rv_epi = f"{stl_srf}/{patient_id}-RVEpi.stl"
+    scar = f"output/cluster_0.stl" #definir scar no merge
     msh_heart = f"{msh_srf}/{patient_id}.msh"
     out_log = f"{msh_srf}/{patient_id}.log"
 
