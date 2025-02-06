@@ -2,14 +2,14 @@ from scipy.io import loadmat
 import numpy as np
 import os
 import subprocess
-
-# Para usar DBSCAN, instale scikit-learn se ainda não tiver: pip install scikit-learn
+# pip install scikit-learn
 from sklearn.cluster import DBSCAN
 
 def readScar():
     """
     Lê os ROIs do arquivo .mat e retorna um array de pontos (X, Y, Z).
     Mantém a lógica de 'fatias', mas ao final também gera um array unificado.
+    Agora, também calcula os baricentros de cada fatia.
     """
     mat_filename = "Patient_1_new.mat"
     print(f"Reading file: {mat_filename}")
@@ -19,8 +19,8 @@ def readScar():
     # Acessando o campo 'Roi' e os subcampos dinamicamente
     rois = setstruct[0][0]['Roi']
 
-    # fatias[z] -> lista de (x, y) para aquele Z
-    fatias = {}
+    fatias = {}  # fatias[z] -> lista de (x, y) para aquele Z
+    baricentros_fibrose = {}  # Armazena os baricentros das fibroses
 
     for idx, roi in enumerate(rois):  # Iterar sobre os ROIs do arquivo
         print(f"Processando ROI {idx+1}...")
@@ -50,7 +50,15 @@ def readScar():
                 
                 # Adicionar as coordenadas X, Y na lista do dicionário correspondente a esse Z
                 fatias[z_val].extend(zip(x_arr, y_arr))
-                print(f"Adicionado ROI {idx+1}, Fatia {z_val}, Pontos={len(x_arr)}")
+                
+                # Cálculo do baricentro da fibrose para esta fatia
+                baricentro_x = np.mean(x_arr)
+                baricentro_y = np.mean(y_arr)
+                baricentros_fibrose[z_val] = (baricentro_x, baricentro_y, z_val)
+
+                print(f"Adicionado ROI {idx+1}, Fatia {z_val}, "
+                      f"Pontos={len(x_arr)}, "
+                      f"Baricentro=({baricentro_x:.2f}, {baricentro_y:.2f}, {z_val:.2f})")
 
         except Exception as e:
             print(f"Erro ao processar ROI {idx+1}: {e}")
@@ -64,17 +72,13 @@ def readScar():
     # Converte a lista para um array NumPy para melhor desempenho e uso na clusterização
     pontos_3d = np.array(pontos_3d)  # shape (N, 3)
 
-    return fatias, pontos_3d
+    return fatias, pontos_3d, baricentros_fibrose
 
-def save_fatias_to_txt(fatias, output_dir="fatias"):
+def save_fatias_to_txt(fatias, baricentros, output_dir="fatias"):
     """
     Salva coordenadas X, Y em arquivos TXT separados por fatia (Z).
-
-    Cada arquivo recebe o nome 'fatia_<Z>.txt' e conterá as colunas:
-    X,Y
-    10.0,20.0
-    15.0,25.0
-    ...
+    O baricentro é adicionado como um ponto extra no final do arquivo **com o comentário '# Baricentro'**,
+    para que o 'make_surface.py' possa identificá-lo como um apex.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -83,10 +87,14 @@ def save_fatias_to_txt(fatias, output_dir="fatias"):
         print(f"Salvando fatia {z} no arquivo: {filename}")
 
         with open(filename, "w") as file:
-            # Primeiro escrevemos o cabeçalho
-            file.write("X,Y\n")
+            # Escreve todos os pontos da fibrose
             for x, y in coordenadas:
-                file.write(f"{x},{y}\n")
+                file.write(f"{x} {y} {z}\n")
+            
+            # Adiciona o baricentro como um ponto extra
+            bx, by, bz = baricentros[z]
+            # Note que o ' # Baricentro' serve para identificar este ponto como apex no make_surface.py
+            file.write(f"{bx} {by} {bz}  # Baricentro\n")
 
     print("Arquivos de fatias gerados com sucesso!")
 
@@ -137,6 +145,14 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
     15.0,25.0,5.0
     ...
     """
+
+    mat_filename = "Patient_1_new.mat"
+    print(f"Reading file: {mat_filename}")
+    data = loadmat(mat_filename)  # Carrega o arquivo
+    setstruct = data['setstruct']
+
+    slice_thickness = setstruct['SliceThickness'][0][0][0][0]
+
     os.makedirs(output_dir, exist_ok=True)
 
     for lbl, pts in clusters.items():
@@ -144,16 +160,28 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
         with open(filename, "w") as file:
             #file.write("X,Y,Z\n")
             for x, y, z in pts:
-                z*=8.64
+                z*=slice_thickness
                 file.write(f"{x} {y} {z}\n")
         print(f"Cluster {lbl} salvo em: {filename}")
 
+def calculate_fibrosis_barycenters(fibX, fibY, fibZ):
+    """Calcula o baricentro de cada fatia da fibrose."""
+    num_slices = fibX.shape[2]
+    barycenters = np.zeros((num_slices, 3))  # Agora temos X, Y e Z
+
+    for s in range(num_slices):
+        barycenters[s, 0] = np.mean(fibX[:, :, s])  # Média X
+        barycenters[s, 1] = np.mean(fibY[:, :, s])  # Média Y
+        barycenters[s, 2] = np.mean(fibZ[:, :, s])  # Média Z
+
+    return barycenters
+
 if __name__ == "__main__":
     # Ler os dados das ROIs (agrupados por fatias e também num array 3D unificado)
-    fatias_data, pontos_3d = readScar()
+    fatias_data, pontos_3d, baricentros_fibrose = readScar()
 
-    # Salvar as fatias separadamente em arquivos .txt
-    save_fatias_to_txt(fatias_data, "fatias_txt")
+    # Salvar as fatias separadamente em arquivos .txt, incluindo os baricentros
+    save_fatias_to_txt(fatias_data, baricentros_fibrose, "fatias_txt")
 
     # Aplicar DBSCAN para agrupar as scars em 3D com parâmetros padrão
     clusters = cluster_scar(pontos_3d, eps=2.0, min_samples=5)
@@ -161,19 +189,22 @@ if __name__ == "__main__":
     # Salvar cada cluster resultante em um arquivo de texto individual
     save_clusters_to_txt(clusters, "clusters_dbscan")
 
-     # Step 3: Generate surfaces
+    # Step 3: Generate surfaces (exemplo gerando apenas 1 cluster, o 0)
     surface_files = [
         f"./clusters_dbscan/cluster_0.txt",
     ]
 
     for surface_file in surface_files:
         try:
+            # Chama o make_surface.py com --cover-both-ends
+            # Lá, ao ler o arquivo cluster_0.txt, ele verá a linha "# Baricentro"
+            # e usará esse valor para fechar a geometria.
             surface_command = f"python3 make_surface.py {surface_file} --cover-both-ends"
             subprocess.run(surface_command, shell=True, check=True)
         except Exception as e:
             print(f"Erro ao gerar superfície para {surface_file}: {e}")
 
-        # Step 4: Convert PLY files to STL
+    # Step 4: Convert PLY files to STL
     ply_files = [
         f"./output/plyFiles/cluster_0.ply",
     ]
@@ -191,4 +222,3 @@ if __name__ == "__main__":
             print(f"STL file generated successfully: {stl_output}")
         except Exception as e:
             print(f"Error converting {ply_file} to {stl_output}: {e}")
-

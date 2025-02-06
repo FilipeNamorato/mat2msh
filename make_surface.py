@@ -80,6 +80,10 @@ def calculate_normals(points,faces,node_id=None):
         return face_normal_at_node
 
 def cover_apex(nodes_renum, tris, patch, principal_axis=0):
+    """
+    (Mantido sem alterações)
+    Fecha apenas um extremo (um 'apex').
+    """
     nodes_covered = np.zeros((len(nodes_renum)+1,3))
     n_in_strip = patch["width"]
     tris_covered = np.zeros((len(tris)+n_in_strip,3))
@@ -94,37 +98,46 @@ def cover_apex(nodes_renum, tris, patch, principal_axis=0):
         tris_covered[i,:] = [0,i+1,(i+1)%n_in_strip+1]
     return nodes_covered, tris_covered
 
-#Close both ends
-def cover_both_ends(nodes_renum, tris, patch, principal_axis=0):
+def cover_both_ends(nodes_renum, tris, patch, principal_axis=0, apex_first=None, apex_last=None):
+    """
+    Fecha ambas as extremidades, adicionando 2 apexes.
+    Permite usar apex_first e apex_last (se não forem None).
+    """
     n_in_strip = patch["width"]
     n_slices   = patch["height"]
      
-    # Apex1 in the first ring
-    apex1 = np.mean(nodes_renum[:n_in_strip, :], axis=0)
-    apex1[principal_axis] += 0.0
+    # Se não for passado apex_first, calcula pela média do primeiro anel
+    if apex_first is None:
+        apex1 = np.mean(nodes_renum[:n_in_strip, :], axis=0)
+        apex1[principal_axis] += 0.0
+    else:
+        apex1 = apex_first
      
-    # Apex2 in the last ring
+    # Se não for passado apex_last, calcula pela média do último anel
     start_last_ring = (n_slices - 1)*n_in_strip
-    apex2 = np.mean(nodes_renum[start_last_ring:start_last_ring + n_in_strip, :], axis=0)
-    apex2[principal_axis] += 0.0
+    if apex_last is None:
+        apex2 = np.mean(nodes_renum[start_last_ring : start_last_ring + n_in_strip, :], axis=0)
+        apex2[principal_axis] += 0.0
+    else:
+        apex2 = apex_last
      
-    # Create new nodes
+    # Cria novos nós
     nodes_covered = np.zeros((len(nodes_renum) + 2, 3))
     nodes_covered[2:, :] = nodes_renum
     nodes_covered[0, :]  = apex1
     nodes_covered[1, :]  = apex2
      
-    # We need +2*n_in_strip triangles
+    # Precisamos de +2*n_in_strip triângulos
     tris_covered = np.zeros((len(tris) + 2*n_in_strip, 3))
     tris_covered[2*n_in_strip:, :] = tris + 2
      
-    # Close first ring with apex1
+    # Fecha primeiro anel
     for i in range(n_in_strip):
         i0 = i + 2
         i1 = ((i + 1) % n_in_strip) + 2
         tris_covered[i, :] = [0, i0, i1]
 
-    # Close last ring with apex2
+    # Fecha último anel
     start_last_ring_new = start_last_ring + 2
     for i in range(n_in_strip):
         j0 = start_last_ring_new + i
@@ -134,16 +147,54 @@ def cover_both_ends(nodes_renum, tris, patch, principal_axis=0):
     return nodes_covered, tris_covered
 
 def parse_arguments():
-    """
-    Read command line arguments:
-    - input_file: .txt file with (X Y Z)
-    - --cover-both-ends: bool indicating whether to close both ends
-    """
     parser = argparse.ArgumentParser(description="Generate surface from points. Default: only apex is closed.")
     parser.add_argument("input_file", help="Text file with point coordinates (X Y Z).")
     parser.add_argument("--cover-both-ends", action="store_true",
                         help="Close both ends of the geometry instead of just one apex.")
     return parser.parse_args()
+
+def read_points_with_apex(filename):
+    """
+    Lê todos os pontos (X Y Z) de um arquivo texto.
+    Se uma linha tiver '#', interpretamos as coordenadas da linha como apex.
+    - O primeiro apex encontrado = apex_first
+    - O último apex encontrado = apex_last
+    Retorna (points, apex_first, apex_last).
+    """
+    points = []
+    apex_first = None
+    apex_last = None
+
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+
+    for line in lines:
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+
+        # Se houver '#', quebrar antes do '#'
+        if '#' in line_clean:
+            line_no_comment = line_clean.split('#')[0].strip()
+            coords = line_no_comment.split()
+            if len(coords) < 3:
+                continue
+            x, y, z = map(float, coords[:3])
+            # Se ainda não temos apex_first, define
+            if apex_first is None:
+                apex_first = np.array([x, y, z], dtype=float)
+            # Sempre atualiza apex_last
+            apex_last = np.array([x, y, z], dtype=float)
+        else:
+            # Linha normal
+            coords = line_clean.split()
+            if len(coords) < 3:
+                continue
+            x, y, z = map(float, coords)
+            points.append([x, y, z])
+
+    points_arr = np.array(points, dtype=float)
+    return points_arr, apex_first, apex_last
 
 if __name__ == "__main__":
 
@@ -164,26 +215,30 @@ if __name__ == "__main__":
     filename_output = os.path.join(output_dir, f"{filename_base}.ply")
 
     # >>> Boolean variable to invert Z if True <<<
-    invert_z = True  # Change to False if you do not want to invert
+    invert_z = True  # Ajuste para False se não quiser inverter o Z
     # >>> -------------------------------------- <<<
 
     user_input = {
         "print_ply": True,
-        "principal_axis": 2,
+        "principal_axis": 2,  # Eixo principal: Z
         "reshuffle_point_order": True,
         "cover_apex": not cover_both,
         "plot": False
     }
 
     print(f"Reading points from {filename_input}")
-    points0 = np.loadtxt(filename_input)
+    points0, apex_first, apex_last = read_points_with_apex(filename_input)
 
-    # Invert the Z coordinate if invert_z is True
-    if invert_z:
-        points0[:,2] = -points0[:,2]
+    # Inverte coordenada Z se invert_z for True
+    if invert_z and len(points0) > 0:
+        points0[:, 2] = -points0[:, 2]
+        if apex_first is not None:
+            apex_first[2] = -apex_first[2]
+        if apex_last is not None:
+            apex_last[2] = -apex_last[2]
 
     if user_input["reshuffle_point_order"]:
-        points = points0[::-1,:]
+        points = points0[::-1, :]
     else:
         points = points0
 
@@ -199,20 +254,25 @@ if __name__ == "__main__":
     patch = {"height": n_slices, "width": n_per_slice}
     tris = make_triangle_connection(patch)
 
-    # Decide whether to close 2 ends, 1 end or none
+    # Decide se fecha as duas extremidades, apenas uma ou nenhuma
     if cover_both:
-        # Close both ends
-        nodes_final, tris_final = cover_both_ends(points, tris, patch, principal_axis=principal_axis)
+        # Fecha ambos os extremos, usando apex_first / apex_last se existirem
+        nodes_final, tris_final = cover_both_ends(
+            points, tris, patch,
+            principal_axis=principal_axis,
+            apex_first=apex_first,
+            apex_last=apex_last
+        )
     elif user_input["cover_apex"]:
-        # Close only one apex
+        # Fecha somente um extremo (mantido original)
         nodes_final, tris_final = cover_apex(points, tris, patch, principal_axis=principal_axis)
     else:
-        # Do not close anything
+        # Não fecha nada
         nodes_final = points
         tris_final = tris
 
-    # Check data for degenerate tris (kept as in the original)
-    normals= calculate_normals(nodes_final,tris_final.astype(int),node_id=None)
+    # Verifica triângulos degenerados
+    normals = calculate_normals(nodes_final, tris_final.astype(int), node_id=None)
     err_tol = 0.000001
 
     bad_tris = np.where(np.abs(np.sqrt((normals ** 2).sum(-1)))<err_tol)[0]
@@ -227,10 +287,10 @@ if __name__ == "__main__":
 
     good_tris = np.where(np.abs(np.sqrt((normals ** 2).sum(-1)))>err_tol)[0]
      
-    # Remove bad tris
+    # Remove triângulos degenerados
     tris_final = tris_final[good_tris,:]
  
-    # Remove bad nodes (kept as in the original)
+    # Corrige índices de nós (se necessário)
     tris_final_temp = tris_final.flatten()
     for i in range(tris_final.size):
         node_i = tris_final_temp[i]
@@ -240,12 +300,12 @@ if __name__ == "__main__":
                 tris_final_temp[i] = new_indices[indice_i]
     tris_final = tris_final_temp.reshape(tris_final.shape)
 
-    # Save .ply
+    # Salva arquivo .ply
     if user_input["print_ply"]:
         print(f"Saving .ply file to {filename_output}")
         writeplyfile(filename_output, nodes_final, tris_final + 1)
 
-    # Plot if necessary (kept as in the original, but was inactive)
+    # Plot (se habilitado)
     if user_input["plot"]:
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
