@@ -219,7 +219,7 @@ if __name__ == "__main__":
     filename_output = os.path.join(output_dir, f"{filename_base}.ply")
 
     # For demonstration, keep invert_z = True
-    invert_z = True  
+    invert_z = False  
 
     user_input = {
         "print_ply": True,

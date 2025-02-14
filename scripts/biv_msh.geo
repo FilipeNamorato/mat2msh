@@ -3,7 +3,7 @@ Mesh.CharacteristicLengthMax = 3;
 
 Coherence Mesh;
 
-Merge "/home/daniel/3D-heart-models/tempFiles/stlFiles/Patient_scar.stl";
+Merge "../output/cluster_3.stl";
 
 // Verificar se superfícies existem antes de definir os volumes
 If (Exists(Surface {7}) && Exists(Surface {8}) && Exists(Surface {9}))

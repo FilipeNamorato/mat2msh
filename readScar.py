@@ -136,33 +136,59 @@ def cluster_scar(pontos_3d, eps=2.0, min_samples=5):
     print(f"Encontrados {len(clusters)} clusters (excluindo outliers).")
     return clusters
 
+import os
+import numpy as np
+from scipy.io import loadmat
+
 def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
     """
-    Salva cada cluster em um arquivo separado dentro de 'output_dir'.
-    O formato de cada arquivo será:
-    X,Y,Z
-    10.0,20.0,5.0
-    15.0,25.0,5.0
-    ...
+    Saves each cluster in a separate .txt file inside 'output_dir'.
+
+    For each cluster, it rescales:
+      x by resolution_x
+      y by resolution_y
+      z by slice_thickness
+
+    Format of each output file (no header):
+      x y z
+      10.0 20.0 5.0
+      15.0 25.0 5.0
+      ...
     """
 
     mat_filename = "Patient_1_new.mat"
     print(f"Reading file: {mat_filename}")
-    data = loadmat(mat_filename)  # Carrega o arquivo
+    data = loadmat(mat_filename)  # Loads the .mat file
     setstruct = data['setstruct']
 
+    # Extract slice thickness (assuming it's stored like this: setstruct['SliceThickness'][0][0][0][0])
     slice_thickness = setstruct['SliceThickness'][0][0][0][0]
 
+    #resolution_x = setstruct['ResolutionX'][0][0][0][0]
+    #resolution_y = setstruct['ResolutionY'][0][0][0][0]
+    resolution_x = 2
+    resolution_y = 2
+    print("-------------------------------------------------------------------------------")
+    print(resolution_x, resolution_y)
+    print("-------------------------------------------------------------------------------")
+
+    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
+    # Iterate over each cluster in the dictionary
     for lbl, pts in clusters.items():
         filename = os.path.join(output_dir, f"cluster_{lbl}.txt")
         with open(filename, "w") as file:
-            #file.write("X,Y,Z\n")
             for x, y, z in pts:
-                z*=slice_thickness
-                file.write(f"{x} {y} {z}\n")
-        print(f"Cluster {lbl} salvo em: {filename}")
+                # Scale each coordinate
+                x_scaled = x * resolution_x
+                y_scaled = y * resolution_y
+                z_scaled = z * slice_thickness
+                # Write them to the file
+                file.write(f"{x_scaled} {y_scaled} {z_scaled}\n")
+
+        print(f"Cluster {lbl} saved to: {filename}")
+
 
 
 if __name__ == "__main__":
@@ -180,13 +206,13 @@ if __name__ == "__main__":
 
     # Step 3: Generate surfaces (exemplo gerando apenas 1 cluster, o 0)
     surface_files = [
-        f"./clusters_dbscan/cluster_0.txt",
+        f"./clusters_dbscan/cluster_3.txt",
     ]
 
     for surface_file in surface_files:
         try:
             # Chama o make_surface.py com --cover-both-ends
-            # Lá, ao ler o arquivo cluster_0.txt, ele verá a linha "# Baricentro"
+            # Lá, ao ler o arquivo cluster_3.txt, ele verá a linha "# Baricentro"
             # e usará esse valor para fechar a geometria.
             surface_command = f"python3 make_surface.py {surface_file} --cover-both-ends"
             subprocess.run(surface_command, shell=True, check=True)
@@ -195,11 +221,11 @@ if __name__ == "__main__":
 
     # Step 4: Convert PLY files to STL
     ply_files = [
-        f"./output/plyFiles/cluster_0.ply",
+        f"./output/plyFiles/cluster_3.ply",
     ]
 
     stl_outputs = [
-        f"./output/cluster_0.stl",
+        f"./output/cluster_3.stl",
     ]
 
     for ply_file, stl_output in zip(ply_files, stl_outputs):

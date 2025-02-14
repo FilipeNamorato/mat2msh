@@ -105,18 +105,15 @@ def execute_commands(input_file):
     gmsh = "./scripts/gmsh-2.13.1/bin/gmsh"
     biv_mesh_geo = "./scripts/biv_mesh.geo"
     biv_msh_geo = "./scripts/biv_msh.geo"
-    biv_stl_scar = "./scripts/biv_stl_scar.geo"
 
     lv_endo = f"{stl_srf}/{patient_id}-LVEndo.stl"
     rv_endo = f"{stl_srf}/{patient_id}-RVEndo.stl"
     rv_epi = f"{stl_srf}/{patient_id}-RVEpi.stl"
 
-
     msh_heart = f"{msh_srf}/{patient_id}_model.msh"
     msh_srf_heart=f"{msh_srf}/{patient_id}_surf.msh"
     msh = f"{msh_srf}/{patient_id}.msh"
     out_log = f"{msh_srf}/{patient_id}.log"
-    stl_scar=f"./output/cluster_0.stl"
 
 
     # Command with os.system
