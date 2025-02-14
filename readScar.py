@@ -164,17 +164,6 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
                 file.write(f"{x} {y} {z}\n")
         print(f"Cluster {lbl} salvo em: {filename}")
 
-def calculate_fibrosis_barycenters(fibX, fibY, fibZ):
-    """Calcula o baricentro de cada fatia da fibrose."""
-    num_slices = fibX.shape[2]
-    barycenters = np.zeros((num_slices, 3))  # Agora temos X, Y e Z
-
-    for s in range(num_slices):
-        barycenters[s, 0] = np.mean(fibX[:, :, s])  # Média X
-        barycenters[s, 1] = np.mean(fibY[:, :, s])  # Média Y
-        barycenters[s, 2] = np.mean(fibZ[:, :, s])  # Média Z
-
-    return barycenters
 
 if __name__ == "__main__":
     # Ler os dados das ROIs (agrupados por fatias e também num array 3D unificado)

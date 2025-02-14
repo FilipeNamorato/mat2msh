@@ -19,11 +19,6 @@ def execute_commands(input_file):
     os.makedirs(stl_srf, exist_ok=True)
     os.makedirs(msh_srf, exist_ok=True)
 
-    # Gmsh and generation scripts
-    gmsh = "./scripts/gmsh-2.13.1/bin/gmsh"
-    biv_mesh_geo = "./scripts/biv_mesh.geo"
-    biv_msh_geo = "./scripts/biv_msh.geo"
-
     print("========================================================================================")
     # Step 1: Process the .mat file
     print(f"Processing the file: {input_file}")
@@ -105,21 +100,38 @@ def execute_commands(input_file):
 
     print("========================================================================================")
     # Step 5: Generate the `.msh` file using Gmsh
+
+    # Gmsh and generation scripts
+    gmsh = "./scripts/gmsh-2.13.1/bin/gmsh"
+    biv_mesh_geo = "./scripts/biv_mesh.geo"
+    biv_msh_geo = "./scripts/biv_msh.geo"
+    biv_stl_scar = "./scripts/biv_stl_scar.geo"
+
     lv_endo = f"{stl_srf}/{patient_id}-LVEndo.stl"
     rv_endo = f"{stl_srf}/{patient_id}-RVEndo.stl"
     rv_epi = f"{stl_srf}/{patient_id}-RVEpi.stl"
-    scar = f"output/cluster_0.stl" #definir scar no merge
-    msh_heart = f"{msh_srf}/{patient_id}.msh"
+
+
+    msh_heart = f"{msh_srf}/{patient_id}_model.msh"
+    msh_srf_heart=f"{msh_srf}/{patient_id}_surf.msh"
+    msh = f"{msh_srf}/{patient_id}.msh"
     out_log = f"{msh_srf}/{patient_id}.log"
+    stl_scar=f"./output/cluster_0.stl"
+
 
     # Command with os.system
     try:
         os.system('{} -3 {} -merge {} {} {} -o {} 2>&1 {}'.format(
-            gmsh, lv_endo, rv_endo, rv_epi, biv_mesh_geo, msh_heart, out_log))
+            gmsh, lv_endo, rv_endo, rv_epi, biv_mesh_geo, msh, out_log))
         print(f"Model generated successfully: {msh_heart}")
     except Exception as e:
         print(f"Error generating model: {e}")
         return
+
+   # os.system('{} -3 {} -merge {} {} {} -o {}'.format(gmsh, lv_endo, rv_endo, rv_epi, biv_mesh_geo, msh_srf_heart))
+   # os.system('{} -3 {} -merge {} -o {}'.format(gmsh, msh_srf_heart, biv_msh_geo, msh_heart))
+
+
     print("========================================================================================")
     print("Finished processing the patient data.")
     print("========================================================================================")
