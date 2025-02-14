@@ -6,13 +6,17 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import argparse
 
-def writeplyfile(writefile,tet_nodes, tet_tot):
+def writeplyfile(writefile, tet_nodes, tet_tot):
+    """
+    Writes a surface mesh in PLY format (ASCII).
+    Indices in 'tet_tot' are expected to be 1-based.
+    """
     in_size = tet_tot.shape
-    if len(in_size)==1:
-        if in_size[0]>0:
-            tet_tot=tet_tot.reshape((1,in_size[0]))  
+    if len(in_size) == 1:
+        if in_size[0] > 0:
+            tet_tot = tet_tot.reshape((1, in_size[0]))
 
-    FILE=open(writefile,"w")
+    FILE = open(writefile, "w")
     FILE.write('ply \n')
     FILE.write('format ascii 1.0 \n')
     FILE.write('comment this is a surface \n')
@@ -30,8 +34,8 @@ def writeplyfile(writefile,tet_nodes, tet_tot):
         y = tet_nodes[i, 1]
         z = tet_nodes[i, 2]
         FILE.write('%f %f %f\n' % (x, y, z))
-     
-    # Faces NOTE: index from 0
+
+    # Faces (converted to 0-based indexing)
     for i in range(len(tet_tot)):
         a1 = tet_tot[i, 0] - 1
         a2 = tet_tot[i, 1] - 1
@@ -48,10 +52,10 @@ def writeplyfile(writefile,tet_nodes, tet_tot):
 
 def make_triangle_connection(patch):
     """
-    Creates the triangle connectivity between consecutive rings/slices.
+    Creates the triangle connectivity between consecutive rings (slices).
     patch["height"] = number of slices
     patch["width"] = number of points in each ring
-    Returns a (N, 3) array (0-based indices).
+    Returns a (N, 3) array of 0-based indices.
     """
     n_strips = patch["height"] - 1
     n_in_strip = patch["width"]
@@ -69,56 +73,68 @@ def make_triangle_connection(patch):
 
     return tris
 
-def calculate_normals(points,faces,node_id=None):
-    face_normals=np.cross(
-        points[faces[:,1],:] - points[faces[:,0],:],
-        points[faces[:,2],:] - points[faces[:,0],:]
+def calculate_normals(points, faces, node_id=None):
+    """
+    Computes cross-product normals for each face.
+    If node_id is provided, returns the normal at that node by summing 
+    the normals of adjacent faces.
+    """
+    face_normals = np.cross(
+        points[faces[:, 1], :] - points[faces[:, 0], :],
+        points[faces[:, 2], :] - points[faces[:, 0], :]
     )
+
     if node_id is None:
-        # Return all face normals
         return face_normals
     else:
-        ix,iy=np.where(faces==node_id)
-        face_normal_at_node = np.sum(face_normals[ix,:],axis=0)
+        ix, iy = np.where(faces == node_id)
+        face_normal_at_node = np.sum(face_normals[ix, :], axis=0)
         normal_length = np.sqrt((face_normal_at_node ** 2).sum(-1))
         if normal_length != 0.0:
             face_normal_at_node /= normal_length
         return face_normal_at_node
 
 def cover_apex(nodes_renum, tris, patch, principal_axis=0):
-    nodes_covered = np.zeros((len(nodes_renum)+1,3))
+    """
+    Closes one end by creating an apex node and connecting it with the first ring of points.
+    """
+    nodes_covered = np.zeros((len(nodes_renum) + 1, 3))
     n_in_strip = patch["width"]
-    tris_covered = np.zeros((len(tris)+n_in_strip,3))
-     
-    # Assume apex has largest principal axis coordinate
-    p_coor = np.mean(nodes_renum[:patch["width"],:],axis=0)
-    p_coor[principal_axis] += .0
-    nodes_covered[1:,:] = nodes_renum
-    nodes_covered[0,:] = p_coor
-    tris_covered[n_in_strip:,:]=tris+1
+    tris_covered = np.zeros((len(tris) + n_in_strip, 3))
+
+    # Example apex: average of the first ring
+    p_coor = np.mean(nodes_renum[:patch["width"], :], axis=0)
+    p_coor[principal_axis] += 0.0
+    nodes_covered[1:, :] = nodes_renum
+    nodes_covered[0, :] = p_coor
+
+    # Shift faces by +1 (new apex node at index 0)
+    tris_covered[n_in_strip:, :] = tris + 1
+
+    # Create triangles connecting apex to the ring
     for i in range(n_in_strip):
-        tris_covered[i,:] = [0,i+1,(i+1)%n_in_strip+1]
+        tris_covered[i, :] = [0, i + 1, (i + 1) % n_in_strip + 1]
 
     return nodes_covered, tris_covered
 
 def cover_both_ends(nodes_renum, tris, patch, principal_axis=0, apex_first=None, apex_last=None):
     """
-    Closes both ends by creating two apexes and connecting them
-    to the first and last rings.
-    If apex_first or apex_last are None, it uses the average of
-    the first or last ring, respectively.
+    Closes both ends by creating two apexes and connecting them with 
+    the first and last ring.
+    If apex_first or apex_last are None, they are computed as the average
+    of the first/last ring, respectively.
     """
     n_in_strip = patch["width"]
     n_slices = patch["height"]
 
-    # If apex_first is not provided, compute from the first ring
+    # If apex_first is None, compute from the first ring
     if apex_first is None:
         apex1 = np.mean(nodes_renum[:n_in_strip, :], axis=0)
         apex1[principal_axis] += 0.0
     else:
         apex1 = apex_first
 
-    # If apex_last is not provided, compute from the last ring
+    # If apex_last is None, compute from the last ring
     start_last_ring = (n_slices - 1) * n_in_strip
     if apex_last is None:
         apex2 = np.mean(nodes_renum[start_last_ring:start_last_ring + n_in_strip, :], axis=0)
@@ -151,16 +167,37 @@ def cover_both_ends(nodes_renum, tris, patch, principal_axis=0, apex_first=None,
 
     return nodes_covered, tris_covered
 
+def replicate_single_slice_below(points, slice_thickness, principal_axis=2):
+    """
+    If there is only one slice (a single ring of points),
+    replicate it "below" by 'slice_thickness' along 'principal_axis'.
+    
+    Returns:
+      new_points: shape (2*N, 3), with:
+          - the lower ring (original ring shifted downward)
+          - the original ring at the original coords
+      patch: {"height": 2, "width": N}
+    """
+    N = points.shape[0]
+    
+    # Create a copy of the ring, shifting by -slice_thickness
+    ring_lower = points.copy()
+    ring_lower[:, principal_axis] -= slice_thickness
+    
+    # Stack them: lower ring first, then the original ring
+    new_points = np.vstack([ring_lower, points])
+    
+    # Now we have 2 slices, each with N points
+    patch = {"height": 2, "width": N}
+    return new_points, patch
+
 def parse_arguments():
-    """
-    Parse command-line arguments:
-    1) input_file = text file with point coordinates (X Y Z)
-    2) --cover-both-ends = boolean to close both ends
-    """
     parser = argparse.ArgumentParser(description="Generate surface from points. Default: only one end is closed.")
     parser.add_argument("input_file", help="Text file with point coordinates (X Y Z).")
     parser.add_argument("--cover-both-ends", action="store_true",
                         help="Close both ends of the geometry instead of just one apex.")
+    parser.add_argument("--slice-thickness", type=float, default=2.0,
+                        help="Distance used if there's only one slice (default=2.0).")
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -181,20 +218,18 @@ if __name__ == "__main__":
     filename_base = os.path.splitext(os.path.basename(filename_input))[0]
     filename_output = os.path.join(output_dir, f"{filename_base}.ply")
 
-    # >>> Boolean variable to invert Z if True <<<
-    invert_z = True  # Set to False if you do not want to invert Z
-    # >>> -------------------------------------- <<<
+    # For demonstration, keep invert_z = True
+    invert_z = True  
 
     user_input = {
         "print_ply": True,
-        "principal_axis": 2,  # Using Z as the principal axis
+        "principal_axis": 2,  # Z-axis
         "reshuffle_point_order": True,
         "cover_apex": not cover_both,
         "plot": False
     }
 
     print(f"Reading points from {filename_input}")
-
     points0 = np.loadtxt(filename_input)
 
     # Optionally invert Z
@@ -207,8 +242,8 @@ if __name__ == "__main__":
     else:
         points = points0
 
-    # Basic check for consistent slices
     principal_axis = user_input["principal_axis"]
+    # Attempt to discover how many slices
     slice_position_test = points[0, principal_axis]
     n_per_slice = np.sum(points[:, principal_axis] == slice_position_test)
     n_slices = int(len(points) / n_per_slice)
@@ -216,13 +251,25 @@ if __name__ == "__main__":
     if n_slices * n_per_slice != len(points):
         print("Error: Inconsistent number of points per slice.")
         sys.exit(1)
-        
-    # Make triangle surface
-    patch = {"height": n_slices, "width": n_per_slice}
+
+    # If there's only one slice, replicate it below
+    if n_slices == 1:
+        print("Detected a single slice. Replicating below using 'slice_thickness'...")
+        new_points, patch = replicate_single_slice_below(
+            points,
+            slice_thickness=args.slice_thickness,
+            principal_axis=principal_axis
+        )
+        points = new_points
+        n_slices = patch["height"]
+        n_per_slice = patch["width"]
+    else:
+        # If there's more than one slice, build patch normally
+        patch = {"height": n_slices, "width": n_per_slice}
+
+    # Create triangle surface
     tris = make_triangle_connection(patch)
 
-    # We'll define apex_first and apex_last as None, 
-    # so cover_both_ends() will compute them from the ring averages.
     apex_first = None
     apex_last = None
 
@@ -241,7 +288,7 @@ if __name__ == "__main__":
 
     # Calculate normals and remove degenerate triangles
     normals = calculate_normals(nodes_final, tris_final.astype(int))
-    err_tol = 0.000001
+    err_tol = 1e-6
 
     bad_tris = np.where(np.abs(np.sqrt((normals ** 2).sum(-1))) < err_tol)[0]
     bad_indices = tris_final[bad_tris, :].astype(int).flatten()
