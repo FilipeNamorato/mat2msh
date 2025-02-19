@@ -4,59 +4,69 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-def plot_clusters_from_txt(input_dir="clusters_dbscan"):
-    """Lê arquivos .txt contendo coordenadas X, Y, Z e plota cada cluster em 3D."""
-    pattern = os.path.join(input_dir, "fatia_7.txt")
-    txt_files = glob.glob(pattern)
-
-    if not txt_files:
-        print(f"Nenhum arquivo encontrado em {pattern}")
+def plot_heart_slices_and_clusters(cluster_dir="clusters_dbscan", heart_slices_dir="heart_slices"):
+    """Plota os clusters e as fatias do coração (LV endo, RV, etc.) a partir de arquivos .txt."""
+    
+    # Encontrar arquivos .txt de clusters e fatias cardíacas
+    cluster_files = glob.glob(os.path.join(cluster_dir, "*.txt"))
+    heart_slice_files = glob.glob(os.path.join(heart_slices_dir, "*.txt"))
+    
+    if not cluster_files and not heart_slice_files:
+        print("Nenhum arquivo encontrado para clusters ou fatias cardíacas.")
         return
-
-    print(f"Arquivos encontrados: {txt_files}")
-
+    
+    print(f"Clusters encontrados: {cluster_files}")
+    print(f"Fatias cardíacas encontradas: {heart_slice_files}")
+    
     # Criar figura 3D
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-
-    # Paleta de cores
-    colors = plt.colormaps.get_cmap("tab10")  # Correção aqui
-
-    for i, txt_file in enumerate(txt_files):
-        data = []
-        with open(txt_file, "r") as file:
-            file.readline()  # Ignorar cabeçalho
-            for line in file:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    x, y, z = map(float, line.split(" "))
-                    data.append((x, y, z))
-                except ValueError:
-                    print(f"Aviso: linha inválida ignorada em {txt_file} -> {line}")
-
-        data = np.array(data)
+    
+    # Paletas de cores diferentes para diferenciar clusters e fatias
+    cluster_colors = plt.get_cmap("tab10")
+    heart_colors = plt.get_cmap("Set1")
+    
+    # 1) Plotar clusters
+    for i, cluster_file in enumerate(cluster_files):
+        data = np.loadtxt(cluster_file, skiprows=1)  # Ignorar cabeçalho (se houver)
         if data.shape[0] == 0:
-            print(f"Aviso: {txt_file} está vazio. Pulando...")
+            print(f"Aviso: {cluster_file} está vazio. Pulando...")
             continue
 
-        # Separar colunas X, Y, Z
-        xs, ys, zs = data[:, 0], data[:, 1], data[:, 2]
+        # Multiplicar X, Y, Z se precisar
+        xs, ys, zs = 2.125*data[:, 0], 2.125*data[:, 1], data[:, 2]
 
-        # Escolher cor da paleta (ciclo se houver mais de 10 clusters)
-        color = colors(i % 10)
+        # Se quiser inverter a fatia no cluster também, faça o mesmo cálculo do minZ/maxZ
+        minZ, maxZ = np.min(zs), np.max(zs)
+        zs_invertidos = (maxZ + minZ) - zs  # inverte
 
-        # Plotar em 3D com cor distinta
-        ax.scatter(xs, ys, zs, c=[color], label=os.path.basename(txt_file), s=10)
+        color = cluster_colors(i % 10)
+        ax.scatter(xs, ys, zs_invertidos, c=[color], label=f"", s=10)
+    
+    # 2) Plotar fatias do coração
+    for i, slice_file in enumerate(heart_slice_files):
+        data = np.loadtxt(slice_file, skiprows=1)
+        if data.shape[0] == 0:
+            print(f"Aviso: {slice_file} está vazio. Pulando...")
+            continue
+        
+        xs, ys, zs = data[:, 0], data[:, 1], data[:, 2] / 8.64
 
+        # Verifica min e max
+        minZ, maxZ = np.min(zs), np.max(zs)
+        # Cria nova lista de Z invertido
+        zs_invertidos = (maxZ + minZ) - zs
+
+        color = heart_colors(i % 9)
+        ax.scatter(xs, ys, zs_invertidos, c=[color], label="", marker='^', s=15)
+    
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-    plt.title("Visualização 3D dos Clusters")
-
+    plt.title("Clusters e Fatias Cardíacas 3D - Z Invertido")
+    
     ax.legend()
     plt.show()
-
+    
 if __name__ == "__main__":
-    plot_clusters_from_txt("./fatias_txt")
+    plot_heart_slices_and_clusters("./fatias_txt/", "./output/20250218/")
