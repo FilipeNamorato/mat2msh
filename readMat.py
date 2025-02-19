@@ -28,7 +28,7 @@ def read_mat(mat_filename, RVyes=False):
 
     # Calculate Z based on SliceThickness and SliceGap
     def calculate_z(num_slices, slice_thickness, slice_gap, num_points_per_slice):
-        z_values = np.arange(num_slices) * slice_thickness
+        z_values = np.arange(num_slices) * (slice_thickness)
         return np.tile(z_values, (num_points_per_slice, 1))
 
     # Extract coordinates of structures
