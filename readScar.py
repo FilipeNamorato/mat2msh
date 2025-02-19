@@ -9,7 +9,6 @@ def readScar():
     """
     Lê os ROIs do arquivo .mat e retorna um array de pontos (X, Y, Z).
     Mantém a lógica de 'fatias', mas ao final também gera um array unificado.
-    Agora, também calcula os baricentros de cada fatia.
     """
     mat_filename = "Patient_1_new.mat"
     print(f"Reading file: {mat_filename}")
@@ -20,7 +19,6 @@ def readScar():
     rois = setstruct[0][0]['Roi']
 
     fatias = {}  # fatias[z] -> lista de (x, y) para aquele Z
-    baricentros_fibrose = {}  # Armazena os baricentros das fibroses
 
     for idx, roi in enumerate(rois):  # Iterar sobre os ROIs do arquivo
         print(f"Processando ROI {idx+1}...")
@@ -50,15 +48,10 @@ def readScar():
                 
                 # Adicionar as coordenadas X, Y na lista do dicionário correspondente a esse Z
                 fatias[z_val].extend(zip(x_arr, y_arr))
-                
-                # Cálculo do baricentro da fibrose para esta fatia
-                baricentro_x = np.mean(x_arr)
-                baricentro_y = np.mean(y_arr)
-                baricentros_fibrose[z_val] = (baricentro_x, baricentro_y, z_val)
+
 
                 print(f"Adicionado ROI {idx+1}, Fatia {z_val}, "
-                      f"Pontos={len(x_arr)}, "
-                      f"Baricentro=({baricentro_x:.2f}, {baricentro_y:.2f}, {z_val:.2f})")
+                      f"Pontos={len(x_arr)}")
 
         except Exception as e:
             print(f"Erro ao processar ROI {idx+1}: {e}")
@@ -72,12 +65,11 @@ def readScar():
     # Converte a lista para um array NumPy para melhor desempenho e uso na clusterização
     pontos_3d = np.array(pontos_3d)  # shape (N, 3)
 
-    return fatias, pontos_3d, baricentros_fibrose
+    return fatias, pontos_3d
 
-def save_fatias_to_txt(fatias, baricentros, output_dir="fatias"):
+def save_fatias_to_txt(fatias, output_dir="fatias"):
     """
     Salva coordenadas X, Y em arquivos TXT separados por fatia (Z).
-    O baricentro é adicionado como um ponto extra no final do arquivo **com o comentário '# Baricentro'**,
     para que o 'make_surface.py' possa identificá-lo como um apex.
     """
     os.makedirs(output_dir, exist_ok=True)
@@ -91,10 +83,6 @@ def save_fatias_to_txt(fatias, baricentros, output_dir="fatias"):
             for x, y in coordenadas:
                 file.write(f"{x} {y} {z}\n")
             
-            # Adiciona o baricentro como um ponto extra
-            bx, by, bz = baricentros[z]
-            # Note que o ' # Baricentro' serve para identificar este ponto como apex no make_surface.py
-            file.write(f"{bx} {by} {bz}  # Baricentro\n")
 
     print("Arquivos de fatias gerados com sucesso!")
 
@@ -163,11 +151,9 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
 
     # Extract slice thickness (assuming it's stored like this: setstruct['SliceThickness'][0][0][0][0])
     slice_thickness = setstruct['SliceThickness'][0][0][0][0]
-
-    #resolution_x = setstruct['ResolutionX'][0][0][0][0]
-    #resolution_y = setstruct['ResolutionY'][0][0][0][0]
-    resolution_x = 2
-    resolution_y = 2
+    slice_gap = setstruct['SliceGap'][0][0][0][0]  # Default to 0 if not present
+    resolution_x = setstruct['ResolutionX'][0][0][0][0]
+    resolution_y = setstruct['ResolutionY'][0][0][0][0]
     print("-------------------------------------------------------------------------------")
     print(resolution_x, resolution_y)
     print("-------------------------------------------------------------------------------")
@@ -183,7 +169,7 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
                 # Scale each coordinate
                 x_scaled = x * resolution_x
                 y_scaled = y * resolution_y
-                z_scaled = z * slice_thickness
+                z_scaled = z * (slice_thickness + slice_gap)
                 # Write them to the file
                 file.write(f"{x_scaled} {y_scaled} {z_scaled}\n")
 
@@ -193,10 +179,10 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
 
 if __name__ == "__main__":
     # Ler os dados das ROIs (agrupados por fatias e também num array 3D unificado)
-    fatias_data, pontos_3d, baricentros_fibrose = readScar()
+    fatias_data, pontos_3d= readScar()
 
-    # Salvar as fatias separadamente em arquivos .txt, incluindo os baricentros
-    save_fatias_to_txt(fatias_data, baricentros_fibrose, "fatias_txt")
+    # Salvar as fatias separadamente em arquivos .txt
+    save_fatias_to_txt(fatias_data, "fatias_txt")
 
     # Aplicar DBSCAN para agrupar as scars em 3D com parâmetros padrão
     clusters = cluster_scar(pontos_3d, eps=2.0, min_samples=5)
@@ -212,8 +198,6 @@ if __name__ == "__main__":
     for surface_file in surface_files:
         try:
             # Chama o make_surface.py com --cover-both-ends
-            # Lá, ao ler o arquivo cluster_3.txt, ele verá a linha "# Baricentro"
-            # e usará esse valor para fechar a geometria.
             surface_command = f"python3 make_surface.py {surface_file} --cover-both-ends"
             subprocess.run(surface_command, shell=True, check=True)
         except Exception as e:
