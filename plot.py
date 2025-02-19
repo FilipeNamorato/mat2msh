@@ -34,7 +34,7 @@ def plot_heart_slices_and_clusters(cluster_dir="clusters_dbscan", heart_slices_d
             continue
 
         # Multiplicar X, Y, Z se precisar
-        xs, ys, zs = 2.125*data[:, 0], 2.125*data[:, 1], data[:, 2]
+        xs, ys, zs = data[:, 0], data[:, 1], data[:, 2]
 
         # Se quiser inverter a fatia no cluster também, faça o mesmo cálculo do minZ/maxZ
         minZ, maxZ = np.min(zs), np.max(zs)
@@ -50,15 +50,10 @@ def plot_heart_slices_and_clusters(cluster_dir="clusters_dbscan", heart_slices_d
             print(f"Aviso: {slice_file} está vazio. Pulando...")
             continue
         
-        xs, ys, zs = data[:, 0], data[:, 1], data[:, 2] / 8.64
-
-        # Verifica min e max
-        minZ, maxZ = np.min(zs), np.max(zs)
-        # Cria nova lista de Z invertido
-        zs_invertidos = (maxZ + minZ) - zs
+        xs, ys, zs = data[:, 0], data[:, 1], data[:, 2]
 
         color = heart_colors(i % 9)
-        ax.scatter(xs, ys, zs_invertidos, c=[color], label="", marker='^', s=15)
+        ax.scatter(xs, ys, zs, c=[color], label="", marker='o', s=15)
     
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
@@ -69,4 +64,4 @@ def plot_heart_slices_and_clusters(cluster_dir="clusters_dbscan", heart_slices_d
     plt.show()
     
 if __name__ == "__main__":
-    plot_heart_slices_and_clusters("./fatias_txt/", "./output/20250218/")
+    plot_heart_slices_and_clusters("./clusters_dbscan/", "./output/20250219/")
