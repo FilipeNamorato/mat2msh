@@ -19,8 +19,8 @@ def read_mat(mat_filename, RVyes=False):
         return coords
 
     # Get values of SliceThickness and SliceGap
-    slice_thickness = getattr(setstruct, 'SliceThickness', None)
-    slice_gap = getattr(setstruct, 'SliceGap', 0.0)  # Default to 0 if not present
+    slice_thickness = getattr(setstruct, 'SliceThickness', 8)
+    slice_gap = getattr(setstruct, 'SliceGap', 0.64)  # Default to 0 if not present
     print(slice_gap)
 
     if slice_thickness is None:

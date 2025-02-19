@@ -99,7 +99,7 @@ def save_structures_to_txt(mat_filename, output_dir):
         data = loadmat(mat_filename, struct_as_record=False, squeeze_me=True)
         setstruct = data['setstruct']
         slice_thickness = getattr(setstruct, 'SliceThickness', 8.0)
-        slice_gap = getattr(setstruct, 'SliceGap', 0.0)
+        slice_gap = getattr(setstruct, 'SliceGap', 0.64)
     except Exception as e:
         print(f"Error loading the .mat file: {e}")
         return None
