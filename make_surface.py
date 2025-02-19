@@ -219,7 +219,9 @@ if __name__ == "__main__":
     filename_output = os.path.join(output_dir, f"{filename_base}.ply")
 
     # For demonstration, keep invert_z = True
-    invert_z = False  
+    invert_z = True  
+    invert_x = False
+    intert_y = False
 
     user_input = {
         "print_ply": True,
@@ -236,6 +238,14 @@ if __name__ == "__main__":
     if invert_z and len(points0) > 0:
         points0[:, 2] = -points0[:, 2]
 
+    # Optionally invert X
+    if invert_x and len(points0) > 0:
+        points0[:, 0] = -points0[:, 0]
+
+    # Optionally invert Y
+    if intert_y and len(points0) > 0:
+        points0[:, 1] = -points0[:, 1]
+        
     # Optionally reverse the point order
     if user_input["reshuffle_point_order"]:
         points = points0[::-1, :]
