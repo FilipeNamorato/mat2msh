@@ -53,8 +53,8 @@ int main(int argc, char *argv[])
     writer->SetFileTypeToASCII(); // Salvar em formato ASCII
     writer->Write();
 
-    std::cout << "Arquivo STL gerado com sucesso: " << outputFileName << std::endl;
-    std::cout << "Número de células: " << triangleFilter->GetOutput()->GetNumberOfCells() << std::endl;
+    //std::cout << "STL file successfully generated: " << outputFileName << std::endl;
+    //std::cout << "Número de células: " << triangleFilter->GetOutput()->GetNumberOfCells() << std::endl;
 
     return EXIT_SUCCESS;
 }

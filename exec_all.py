@@ -116,6 +116,16 @@ def execute_commands(input_file):
     out_log = f"{msh_srf}/{patient_id}.log"
 
 
+    # Step 6: Execute readScar.py
+    try:
+        read_scar_command = "python3 readScar.py"
+        subprocess.run(read_scar_command, shell=True, check=True)
+        print("Scar data processed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing readScar.py: {e}")
+        return
+
+
     # Command with os.system
     try:
         os.system('{} -3 {} -merge {} {} {} -o {} 2>&1 {}'.format(
@@ -125,15 +135,19 @@ def execute_commands(input_file):
         print(f"Error generating model: {e}")
         return
 
-   # os.system('{} -3 {} -merge {} {} {} -o {}'.format(gmsh, lv_endo, rv_endo, rv_epi, biv_mesh_geo, msh_srf_heart))
-   # os.system('{} -3 {} -merge {} -o {}'.format(gmsh, msh_srf_heart, biv_msh_geo, msh_heart))
+    #os.system('{} -3 {} -merge {} {} {} -o {}'.format(gmsh, lv_endo, rv_endo, rv_epi, biv_mesh_geo, msh_srf_heart))
+    #os.system('{} -3 {} -merge {} -o {}'.format(gmsh, msh_srf_heart, biv_msh_geo, msh_heart))
 
 
     print("========================================================================================")
     print("Finished processing the patient data.")
     print("========================================================================================")
     os.remove("./aligned_patient.mat")
-    
+    os.remove("./endo_shifts_x.txt")
+    os.remove("./endo_shifts_y.txt")
+    os.remove("./epi_shifts_x.txt")
+    os.remove("./epi_shifts_y.txt")
+
 # Main entry point
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Execute pipeline for processing a .mat file.")

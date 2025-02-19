@@ -1,6 +1,7 @@
 from scipy.io import loadmat
 import numpy as np
 import os
+import glob
 import subprocess
 # pip install scikit-learn
 from sklearn.cluster import DBSCAN
@@ -69,22 +70,43 @@ def readScar():
 
 def save_fatias_to_txt(fatias, output_dir="fatias"):
     """
-    Salva coordenadas X, Y em arquivos TXT separados por fatia (Z).
-    para que o 'make_surface.py' possa identificá-lo como um apex.
+    Salva coordenadas X, Y das fibroses em arquivos TXT separados por fatia (Z),
+    aplicando o deslocamento do alinhamento do miocárdio.
     """
     os.makedirs(output_dir, exist_ok=True)
+
+    # Carregar os deslocamentos aplicados ao coração
+    try:
+        endo_shifts_x = np.loadtxt("epi_shifts_x.txt")
+        endo_shifts_y = np.loadtxt("epi_shifts_y.txt")
+    except Exception as e:
+        print(f"Erro ao carregar deslocamentos: {e}")
+        return
 
     for z, coordenadas in fatias.items():
         filename = os.path.join(output_dir, f"fatia_{int(z)}.txt")
         print(f"Salvando fatia {z} no arquivo: {filename}")
 
         with open(filename, "w") as file:
-            # Escreve todos os pontos da fibrose
-            for x, y in coordenadas:
-                file.write(f"{x} {y} {z}\n")
+            slice_idx = int(z)  # Assumindo que o valor de Z representa o índice da fatia
             
+            # Verificar se o índice da fatia está dentro do intervalo dos deslocamentos
+            if 0 <= slice_idx < len(endo_shifts_x):
+                shift_x = endo_shifts_x[slice_idx]
+                shift_y = endo_shifts_y[slice_idx]
+            else:
+                shift_x = 0
+                shift_y = 0
+                print(f"Atenção: Fatia {slice_idx} fora do intervalo dos deslocamentos!")
+
+            # Escreve todos os pontos da fibrose com o deslocamento aplicado
+            for x, y in coordenadas:
+                x_aligned = x - shift_x
+                y_aligned = y - shift_y
+                file.write(f"{x_aligned} {y_aligned} {z}\n")
 
     print("Arquivos de fatias gerados com sucesso!")
+
 
 def cluster_scar(pontos_3d, eps=2.0, min_samples=5):
     """
@@ -124,9 +146,6 @@ def cluster_scar(pontos_3d, eps=2.0, min_samples=5):
     print(f"Encontrados {len(clusters)} clusters (excluindo outliers).")
     return clusters
 
-import os
-import numpy as np
-from scipy.io import loadmat
 
 def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
     """
@@ -179,7 +198,7 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
 
 if __name__ == "__main__":
     # Ler os dados das ROIs (agrupados por fatias e também num array 3D unificado)
-    fatias_data, pontos_3d= readScar()
+    fatias_data, pontos_3d = readScar()
 
     # Salvar as fatias separadamente em arquivos .txt
     save_fatias_to_txt(fatias_data, "fatias_txt")
@@ -188,36 +207,40 @@ if __name__ == "__main__":
     clusters = cluster_scar(pontos_3d, eps=2.0, min_samples=5)
 
     # Salvar cada cluster resultante em um arquivo de texto individual
+    # (ex.: cluster_0.txt, cluster_1.txt, cluster_2.txt, etc.)
     save_clusters_to_txt(clusters, "clusters_dbscan")
 
-    # Step 3: Generate surfaces (exemplo gerando apenas 1 cluster, o 0)
-    surface_files = [
-        f"./clusters_dbscan/cluster_3.txt",
-    ]
+    # Passo 3: Gera superfícies para TODOS os arquivos cluster_*.txt na pasta clusters_dbscan
+    cluster_txt_files = sorted(glob.glob("./clusters_dbscan/cluster_*.txt"))
 
-    for surface_file in surface_files:
+    for surface_file in cluster_txt_files:
         try:
-            # Chama o make_surface.py com --cover-both-ends
+            # --cover-both-ends é só um exemplo de parâmetro adicional, ajuste conforme necessário
             surface_command = f"python3 make_surface.py {surface_file} --cover-both-ends"
             subprocess.run(surface_command, shell=True, check=True)
-        except Exception as e:
+            print(f"Superfície gerada para {surface_file}")
+        except subprocess.CalledProcessError as e:
             print(f"Erro ao gerar superfície para {surface_file}: {e}")
 
-    # Step 4: Convert PLY files to STL
-    ply_files = [
-        f"./output/plyFiles/cluster_3.ply",
-    ]
+    # Passo 4: Converte cada arquivo .ply (cluster_X.ply) em .stl (cluster_X.stl)
+    # A make_surface.py deve gerar os arquivos .ply em ./output/plyFiles/cluster_X.ply
+    for surface_file in cluster_txt_files:
+        # Extrai o nome do cluster (ex.: "cluster_2")
+        cluster_name = os.path.splitext(os.path.basename(surface_file))[0]  # cluster_2
 
-    stl_outputs = [
-        f"./output/cluster_3.stl",
-    ]
+        # Monta o caminho para o .ply que o make_surface.py deve ter criado
+        ply_file = f"./output/plyFiles/{cluster_name}.ply"
+        # Define o STL de saída
+        stl_output = f"./output/{cluster_name}.stl"
 
-    for ply_file, stl_output in zip(ply_files, stl_outputs):
         if not os.path.exists(ply_file):
-            print(f"Error: PLY file {ply_file} not found.")
+            print(f"Erro: não existe arquivo PLY gerado para {ply_file}. Verifique o make_surface.py.")
+            continue
+
         try:
             ply_to_stl_command = f"./convertPly2STL/build/PlyToStl {ply_file} {stl_output} True"
             subprocess.run(ply_to_stl_command, shell=True, check=True)
-            print(f"STL file generated successfully: {stl_output}")
-        except Exception as e:
-            print(f"Error converting {ply_file} to {stl_output}: {e}")
+            print(f"STL gerado com sucesso: {stl_output}")
+        except subprocess.CalledProcessError as e:
+            print(f"Erro ao converter {ply_file} para {stl_output}: {e}")
+

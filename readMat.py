@@ -62,6 +62,9 @@ def read_mat(mat_filename, RVyes=False):
         z = z_values.reshape(-1, 1)
 
         valid_idx = ~np.isnan(barycenters[:, 0])
+        shifts_x = np.zeros(num_slices)
+        shifts_y = np.zeros(num_slices)
+
         if valid_idx.sum() > 1:
             modelX = LinearRegression().fit(z[valid_idx], barycenters[valid_idx, 0])
             modelY = LinearRegression().fit(z[valid_idx], barycenters[valid_idx, 1])
@@ -73,15 +76,21 @@ def read_mat(mat_filename, RVyes=False):
                 if not np.isnan(X[:, 0, s]).all():
                     shiftX = barycenters[s, 0] - estX[s]
                     shiftY = barycenters[s, 1] - estY[s]
+                    
+                    # Save the shifts for alignment scars
+                    shifts_x[s] = shiftX
+                    shifts_y[s] = shiftY
+
+                    # Apply the shifts
                     X[:, :, s] -= shiftX
                     Y[:, :, s] -= shiftY
 
-        return X, Y
+        return X, Y, shifts_x, shifts_y
 
     # Calculate barycenters and align Endo and Epi
     endo_barycenters = calculate_barycenters(endoX, endoY, epiX, epiY)
-    endoX, endoY = align_slices(endoX, endoY, endo_barycenters, EndoZ[0])
-    epiX, epiY = align_slices(epiX, epiY, endo_barycenters, EpiZ[0])
+    endoX, endoY, endo_shifts_x, endo_shifts_y = align_slices(endoX, endoY, endo_barycenters, EndoZ[0])
+    epiX, epiY, epi_shifts_x, epi_shifts_y = align_slices(epiX, epiY, endo_barycenters, EpiZ[0])
 
     if RVyes:
         # Align RV
@@ -112,6 +121,14 @@ def read_mat(mat_filename, RVyes=False):
     setstruct.EndoY = endoY
     setstruct.EpiX = epiX
     setstruct.EpiY = epiY
+
+    # Save the shifts for alignment scars
+    np.savetxt("endo_shifts_x.txt", endo_shifts_x, fmt="%.6f")
+    np.savetxt("endo_shifts_y.txt", endo_shifts_y, fmt="%.6f")
+    np.savetxt("epi_shifts_x.txt", epi_shifts_x, fmt="%.6f")
+    np.savetxt("epi_shifts_y.txt", epi_shifts_y, fmt="%.6f")
+
+    print("Displacement shifts saved as .txt files.")
 
     # Save the processed file
     output_filename = 'aligned_patient.mat'

@@ -221,7 +221,7 @@ if __name__ == "__main__":
     # For demonstration, keep invert_z = True
     invert_z = True  
     invert_x = False
-    intert_y = False
+    intert_y = True
 
     user_input = {
         "print_ply": True,
