@@ -43,6 +43,11 @@ def adjust_resolution(setstruct, structures):
 
             # Check if at least one point is valid for each slice
             slice_validity = valid_mask.any(axis=0)
+            
+            for s_idx, is_valid in enumerate(slice_validity):
+                if is_valid:
+                    print(f"{name}: Fatia {s_idx} marcada como válida (existe algum ponto != NaN).")
+                    
 
             # Combine masks: A slice is valid if at least one structure has valid points
             if valid_slices_mask is None:
@@ -58,7 +63,14 @@ def adjust_resolution(setstruct, structures):
         print("No valid slices found.")
         return setstruct, None
 
-    valid_indices = np.where(valid_slices_mask)[0]
+    print("--------------------------------------------------")
+    print("Debug: Verificação das fatias válidas")
+    print(f"Tamanho total esperado das fatias: {num_slices}")
+    print(f"Máscara de fatias válidas (1 = válido, 0 = NaN): {valid_slices_mask.astype(int)}")
+    print("--------------------------------------------------")
+
+
+    valid_indices = (np.where(valid_slices_mask)[0])
 
     # Adjust coordinates for valid slices
     for name, (x_attr, y_attr) in structures.items():
@@ -133,7 +145,11 @@ def save_structures_to_txt(mat_filename, output_dir):
             num_points = x_coords.shape[0]
 
             # Create Z values starting at 0 for valid slices
-            z_base = valid_indices * (slice_thickness + slice_gap)
+            #AVALIAR A SOMA DO +1
+                #Estou achando que está havendo uma incompatilidade entre
+                #os dados extraídos do .mat e a forma como o numpy está lidando com eles
+            z_base = (valid_indices + 1) * (slice_thickness + slice_gap)
+            print(valid_indices) 
             z_values = np.tile(z_base, (num_points, 1))
 
             # Output file name
