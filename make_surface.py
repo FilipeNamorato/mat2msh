@@ -218,8 +218,8 @@ if __name__ == "__main__":
     filename_base = os.path.splitext(os.path.basename(filename_input))[0]
     filename_output = os.path.join(output_dir, f"{filename_base}.ply")
 
-    # For demonstration, keep invert_z = True
-    invert_z = True  
+    # Invert coordinates
+    invert_z = False  
     invert_x = False
     intert_y = True
 

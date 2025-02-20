@@ -77,8 +77,8 @@ def save_fatias_to_txt(fatias, output_dir="fatias"):
 
     # Carregar os deslocamentos aplicados ao coração
     try:
-        endo_shifts_x = np.loadtxt("epi_shifts_x.txt")
-        endo_shifts_y = np.loadtxt("epi_shifts_y.txt")
+        endo_shifts_x = np.loadtxt("endo_shifts_x.txt")
+        endo_shifts_y = np.loadtxt("endo_shifts_y.txt")
     except Exception as e:
         print(f"Erro ao carregar deslocamentos: {e}")
         return

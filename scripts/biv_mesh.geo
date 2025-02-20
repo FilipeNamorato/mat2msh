@@ -21,6 +21,8 @@ Mesh.OptimizeNetgen = 1;
 //Mesh.Smoothing = 0;
 Mesh.SurfaceFaces = 1;
 
+//Merge "/home/filipenamorato/mat2msh/output/20250220/Patient_1/stlFiles";
+
 
 CreateTopology;
 ll[] = Line "*";
@@ -37,13 +39,22 @@ S_epi = news; Compound Surface(S_epi) = ss[2];
 LL_base = newll; Line Loop(LL_base) = {L_LV_base, L_RV_base, L_epi_base};
 S_base  = news; Plane Surface(S_base) = {LL_base};
 
-SL_wall = newsl; Surface Loop(SL_wall) = {S_LV, S_RV, S_epi, S_base};
-V_wall  = newv;  Volume(V_wall)       = {SL_wall};
+
 
 Physical Surface("BASE", 10) = {S_base};
 Physical Surface("LV",   30) = {S_LV};
 Physical Surface("RV",   20) = {S_RV};
 Physical Surface("EPI",  40) = {S_epi};
+
+
+Merge "/home/filipenamorato/mat2msh/output/cluster_0.stl";
+
+Physical Surface("fib",  50) = {4};
+
+SL_wall = newsl; Surface Loop(SL_wall) = {S_LV, S_RV, S_epi, S_base, 4};
+V_wall  = newv;  Volume(V_wall)       = {SL_wall};
 Physical Volume("WALL",  1)  = {V_wall};
 
-Coherence;
+SL_fib = newsl; Surface Loop(SL_fib) = {4};
+V_fib  = newv;  Volume(V_fib)       = {SL_fib};
+Physical Volume("fib",  2)  = {V_fib};

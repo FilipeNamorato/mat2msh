@@ -33,7 +33,7 @@ ss[] = Surface "*";
 S_LV = news; Compound Surface(S_LV) = ss[0];
 S_RV = news; Compound Surface(S_RV) = ss[1];
 S_epi = news; Compound Surface(S_epi) = ss[2];
-S_scar = news; Compound Surface(S_scar) = ss[3];
+//S_scar = news; Compound Surface(S_scar) = ss[3]; //talvez
 Physical Surface("LV") = {S_LV};
 Physical Surface("RV") = {S_RV};
 Physical Surface("EPI") = {S_epi};
