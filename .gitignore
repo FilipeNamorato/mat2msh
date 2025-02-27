@@ -10,3 +10,5 @@ clusters_dbscan/*
 fatias_txt/*
 *.pos
 *.mat
+*.txt
+*.stl

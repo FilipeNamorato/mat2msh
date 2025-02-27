@@ -65,7 +65,14 @@ def readScar():
 
     # Converte a lista para um array NumPy para melhor desempenho e uso na clusterização
     pontos_3d = np.array(pontos_3d)  # shape (N, 3)
+    # A) Salva pontos originais (só pra debug, se quiser)
+    np.savetxt("fibrosis_original.txt", pontos_3d)
 
+    # B) Aplica o mapeamento
+    mapped_fibrosis = apply_vertex_mapping(pontos_3d, "vertex_mapping.txt")
+
+    # C) Salva pontos fibroses já corrigidos
+    np.savetxt("fibrosis_mapped.txt", mapped_fibrosis)
     return fatias, pontos_3d
 
 def save_fatias_to_txt(fatias, output_dir="fatias"):
@@ -194,10 +201,44 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
 
         print(f"Cluster {lbl} saved to: {filename}")
 
+import numpy as np
+from scipy.spatial import KDTree
+
+def apply_vertex_mapping(fibrosis_points, mapping_file):
+    """
+    Ajusta cada ponto de fibrose para a posição suavizada correspondente,
+    de acordo com o vertex_mapping.txt gerado no C++.
+
+    Params:
+      - fibrosis_points: NumPy array (N, 3) com as coordenadas da fibrose no espaço 'original'
+      - mapping_file: path para 'vertex_mapping.txt'
+    
+    Return:
+      - NumPy array (N, 3) com as coordenadas ajustadas para o espaço 'suavizado'
+    """
+    # Carrega arquivo de mapeamento
+    # Cada linha: i origX origY origZ smoothX smoothY smoothZ
+    data_map = np.loadtxt(mapping_file)
+    # data_map.shape -> (M, 7)
+
+    orig_coords   = data_map[:, 1:4]  # colunas (origX, origY, origZ)
+    smooth_coords = data_map[:, 4:7]  # colunas (smoothX, smoothY, smoothZ)
+
+    # Cria um KDTree com os pontos originais do coração
+    tree = KDTree(orig_coords)
+
+    corrected = []
+    for p in fibrosis_points:
+        dist, idx = tree.query(p)  # idx do vértice mais próximo
+        # Posição suavizada correspondente
+        new_p = smooth_coords[idx]
+        corrected.append(new_p)
+
+    return np.array(corrected)
 
 
 if __name__ == "__main__":
-    # Ler os dados das ROIs (agrupados por fatias e também num array 3D unificado)
+    # Ler os dados das ROIs
     fatias_data, pontos_3d = readScar()
 
     # Salvar as fatias separadamente em arquivos .txt
@@ -238,7 +279,7 @@ if __name__ == "__main__":
             continue
 
         try:
-            ply_to_stl_command = f"./convertPly2STL/build/PlyToStl {ply_file} {stl_output} True"
+            ply_to_stl_command = f"./convertPly2STL/build/PlyToStl {ply_file} {stl_output} 1"
             subprocess.run(ply_to_stl_command, shell=True, check=True)
             print(f"STL gerado com sucesso: {stl_output}")
         except subprocess.CalledProcessError as e:
