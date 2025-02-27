@@ -31,8 +31,8 @@ int main(int argc, char *argv[])
     else
         smoother->SetRelaxationFactor(0.02);
             
-    smoother->SetNumberOfIterations(400);
-    smoother->BoundarySmoothingOn();
+    smoother->SetNumberOfIterations(200);
+    smoother->BoundarySmoothingOff();
     smoother->Update();
 
     // Geração de normais na superfície

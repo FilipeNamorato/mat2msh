@@ -11,7 +11,7 @@ def readScar():
     Lê os ROIs do arquivo .mat e retorna um array de pontos (X, Y, Z).
     Mantém a lógica de 'fatias', mas ao final também gera um array unificado.
     """
-    mat_filename = "Patient_1_new.mat"
+    mat_filename = "Patient_1_new.mat"#LEMBRAR DE COLOCAR POR PARÂMENTRO
     print(f"Reading file: {mat_filename}")
     data = loadmat(mat_filename)  # Carrega o arquivo
     setstruct = data['setstruct']

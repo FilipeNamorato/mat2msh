@@ -9,3 +9,4 @@ plyFiles/*
 clusters_dbscan/*
 fatias_txt/*
 *.pos
+*.mat
