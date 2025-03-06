@@ -182,7 +182,9 @@ def replicate_single_slice_below(points, slice_thickness, principal_axis=2):
     
     # Create a copy of the ring, shifting by -slice_thickness
     ring_lower = points.copy()
-    ring_lower[:, principal_axis] -= slice_thickness
+    
+    # If the sign is inverted, reverse the extrusion direction
+    ring_lower[:, principal_axis] += slice_thickness 
     
     # Stack them: lower ring first, then the original ring
     new_points = np.vstack([ring_lower, points])
@@ -219,7 +221,7 @@ if __name__ == "__main__":
     filename_output = os.path.join(output_dir, f"{filename_base}.ply")
 
     # Invert coordinates
-    invert_z = False  
+    invert_z = False
     invert_x = False
     intert_y = True
 
