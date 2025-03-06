@@ -3,6 +3,7 @@ from datetime import datetime
 import subprocess
 from readMat import read_mat
 import argparse
+import shutil
 
 def execute_commands(input_file):
     # Fixed patient ID for processing
@@ -16,9 +17,10 @@ def execute_commands(input_file):
     # Paths for surfaces and intermediate files
     stl_srf = f"{output_dir}/stlFiles"
     msh_srf = f"{output_dir}/mshFiles"
+    scar_srf = f"output/scarFiles"
     os.makedirs(stl_srf, exist_ok=True)
     os.makedirs(msh_srf, exist_ok=True)
-
+    os.makedirs(scar_srf, exist_ok=True)
     print("========================================================================================")
     # Step 1: Process the .mat file
     print(f"Processing the file: {input_file}")
@@ -117,8 +119,9 @@ def execute_commands(input_file):
 
 
     # Step 6: Execute readScar.py
+
     try:
-        read_scar_command = "python3 readScar.py"
+        read_scar_command = f"python3 readScar.py {input_file}"
         subprocess.run(read_scar_command, shell=True, check=True)
         print("Scar data processed successfully.")
     except subprocess.CalledProcessError as e:
@@ -142,11 +145,17 @@ def execute_commands(input_file):
     print("========================================================================================")
     print("Finished processing the patient data.")
     print("========================================================================================")
+    # Clean up intermediate files
     os.remove("./aligned_patient.mat")
     os.remove("./endo_shifts_x.txt")
     os.remove("./endo_shifts_y.txt")
     os.remove("./epi_shifts_x.txt")
     os.remove("./epi_shifts_y.txt")
+    os.remove("./fibrosis_mapped.txt")
+    os.remove("./fibrosis_original.txt")
+    
+    shutil.rmtree("./output/plyFiles")
+    #shutil.rmtree("./output/scarFiles")
 
 # Main entry point
 if __name__ == "__main__":
