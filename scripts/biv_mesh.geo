@@ -47,7 +47,7 @@ Physical Surface("RV",   20) = {S_RV};
 Physical Surface("EPI",  40) = {S_epi};
 
 
-Merge "/home/filipenamorato/mat2msh/output/cluster_0.stl";
+Merge "/home/filipe/mat2msh/output/scarFiles/cluster_0.stl";
 
 Physical Surface("fib",  50) = {4};
 
