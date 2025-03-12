@@ -5,13 +5,16 @@ import glob
 import subprocess
 # pip install scikit-learn
 from sklearn.cluster import DBSCAN
+from sklearn.cluster import OPTICS
+import sys
+from scipy.spatial import KDTree
 
-def readScar():
+def readScar(mat_filename):
     """
     Lê os ROIs do arquivo .mat e retorna um array de pontos (X, Y, Z).
     Mantém a lógica de 'fatias', mas ao final também gera um array unificado.
     """
-    mat_filename = "Patient_1_new.mat"#LEMBRAR DE COLOCAR POR PARÂMENTRO
+    
     print(f"Reading file: {mat_filename}")
     data = loadmat(mat_filename)  # Carrega o arquivo
     setstruct = data['setstruct']
@@ -115,46 +118,49 @@ def save_fatias_to_txt(fatias, output_dir="fatias"):
     print("Arquivos de fatias gerados com sucesso!")
 
 
-def cluster_scar(pontos_3d, eps=2.0, min_samples=5):
+def cluster_scar(pontos_3d, min_samples=10, xi=0.05, min_cluster_size=0.05):
     """
-    Aplica DBSCAN nos pontos 3D para agrupar 'scars' próximas.
+    Aplica OPTICS nos pontos 3D para agrupar fibroses.
     
     Parâmetros:
-    - eps: raio máximo de distância entre dois pontos para que sejam considerados vizinhos
-    - min_samples: número mínimo de pontos para que um conjunto seja definido como um cluster
+    - min_samples: número mínimo de pontos para que um conjunto seja definido como cluster
+    - xi: controla o 'drop' na densidade para separar clusters (ajusta a sensibilidade)
+    - min_cluster_size: fracionário (ex: 0.05 = 5% do total) ou inteiro, número mínimo de pontos no cluster
+       (depende do que você precisa; ver doc do OPTICS)
     
     Retorna:
     - dicionário: {cluster_id: lista_de_pontos (X,Y,Z)}
-
-    Observação:
-    - Os pontos marcados como -1 (outliers) são ignorados, pois não se encaixam em nenhum cluster.
-    - Ajustar eps e min_samples dependendo da escala dos dados e da densidade desejada.
+    - lembrando que lbl = -1 indica outliers/noise
     """
     if len(pontos_3d) == 0:
         print("Nenhum ponto para clusterizar.")
         return {}
 
-    # Instancia o algoritmo DBSCAN
-    db = DBSCAN(eps=eps, min_samples=min_samples)
-    # Ajusta e prediz o rótulo de cada ponto (labels) com base na densidade
-    labels = db.fit_predict(pontos_3d)
+    # Instancia o OPTICS
+    optics_model = OPTICS(
+        min_samples=min_samples, 
+        xi=xi,
+        min_cluster_size=min_cluster_size,
+        cluster_method='xi'  # ou 'dbscan', dependendo da estratégia desejada
+    )
 
+    # Ajusta e prediz o rótulo de cada ponto (labels) com base na densidade
+    labels = optics_model.fit_predict(pontos_3d)
+
+    # Monta o dicionário de clusters
     clusters = {}
     for i, lbl in enumerate(labels):
-        # lbl = -1 indica que o ponto foi marcado como outlier
+        # lbl = -1 indica que o ponto foi marcado como outlier/noise
         if lbl == -1:
             continue
-        # Cria uma nova lista para o cluster se ainda não existir
         if lbl not in clusters:
             clusters[lbl] = []
-        # Adiciona o ponto ao cluster correspondente
         clusters[lbl].append(pontos_3d[i])
 
     print(f"Encontrados {len(clusters)} clusters (excluindo outliers).")
     return clusters
 
-
-def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
+def save_clusters_to_txt(clusters, mat_filename, output_dir="clusters_dbscan"):
     """
     Saves each cluster in a separate .txt file inside 'output_dir'.
 
@@ -162,27 +168,21 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
       x by resolution_x
       y by resolution_y
       z by slice_thickness
-
-    Format of each output file (no header):
-      x y z
-      10.0 20.0 5.0
-      15.0 25.0 5.0
-      ...
     """
 
-    mat_filename = "Patient_1_new.mat"
     print(f"Reading file: {mat_filename}")
     data = loadmat(mat_filename)  # Loads the .mat file
     setstruct = data['setstruct']
 
-    # Extract slice thickness (assuming it's stored like this: setstruct['SliceThickness'][0][0][0][0])
+    # Extract slice thickness, slice gap, resolution, etc.
     slice_thickness = setstruct['SliceThickness'][0][0][0][0]
-    slice_gap = setstruct['SliceGap'][0][0][0][0]  # Default to 0 if not present
-    resolution_x = setstruct['ResolutionX'][0][0][0][0]
-    resolution_y = setstruct['ResolutionY'][0][0][0][0]
-    print("-------------------------------------------------------------------------------")
-    print(resolution_x, resolution_y)
-    print("-------------------------------------------------------------------------------")
+    slice_gap       = setstruct['SliceGap'][0][0][0][0]
+    resolution_x    = setstruct['ResolutionX'][0][0][0][0]
+    resolution_y    = setstruct['ResolutionY'][0][0][0][0]
+
+    print("------------------------------------------------------")
+    print("Resolutions:", resolution_x, resolution_y)
+    print("------------------------------------------------------")
 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -196,13 +196,11 @@ def save_clusters_to_txt(clusters, output_dir="clusters_dbscan"):
                 x_scaled = x * resolution_x
                 y_scaled = y * resolution_y
                 z_scaled = z * (slice_thickness + slice_gap)
-                # Write them to the file
                 file.write(f"{x_scaled} {y_scaled} {z_scaled}\n")
 
         print(f"Cluster {lbl} saved to: {filename}")
 
-import numpy as np
-from scipy.spatial import KDTree
+
 
 def apply_vertex_mapping(fibrosis_points, mapping_file):
     """
@@ -238,18 +236,31 @@ def apply_vertex_mapping(fibrosis_points, mapping_file):
 
 
 if __name__ == "__main__":
+    # Verifica se o usuário passou o arquivo .mat como argumento
+    if len(sys.argv) < 2:
+        print("Erro: Nenhum arquivo .mat foi especificado.")
+        print("Uso: python3 readScar.py <caminho_do_arquivo.mat>")
+        sys.exit(1)
+
+    # Captura o argumento, que é o caminho do arquivo .mat
+    mat_filename = sys.argv[1]
+    
     # Ler os dados das ROIs
-    fatias_data, pontos_3d = readScar()
+    fatias_data, pontos_3d = readScar(mat_filename)
 
     # Salvar as fatias separadamente em arquivos .txt
     save_fatias_to_txt(fatias_data, "fatias_txt")
 
-    # Aplicar DBSCAN para agrupar as scars em 3D com parâmetros padrão
-    clusters = cluster_scar(pontos_3d, eps=2.0, min_samples=5)
-
+    # Aplicar OPTICS para agrupar as scars em 3D com parâmetros padrão
+    clusters = cluster_scar(
+        pontos_3d, 
+        min_samples=20,    # Ajuste conforme suas necessidades
+        xi=0.07,           # Ajuste para controlar a separação de densidade
+        min_cluster_size=0.02  # Pode ser 0.05 (5%) ou outro valor
+    )
     # Salvar cada cluster resultante em um arquivo de texto individual
     # (ex.: cluster_0.txt, cluster_1.txt, cluster_2.txt, etc.)
-    save_clusters_to_txt(clusters, "clusters_dbscan")
+    save_clusters_to_txt(clusters, mat_filename, "clusters_dbscan")
 
     # Passo 3: Gera superfícies para TODOS os arquivos cluster_*.txt na pasta clusters_dbscan
     cluster_txt_files = sorted(glob.glob("./clusters_dbscan/cluster_*.txt"))
@@ -272,7 +283,7 @@ if __name__ == "__main__":
         # Monta o caminho para o .ply que o make_surface.py deve ter criado
         ply_file = f"./output/plyFiles/{cluster_name}.ply"
         # Define o STL de saída
-        stl_output = f"./output/{cluster_name}.stl"
+        stl_output = f"./output/scarFiles/{cluster_name}.stl"
 
         if not os.path.exists(ply_file):
             print(f"Erro: não existe arquivo PLY gerado para {ply_file}. Verifique o make_surface.py.")
