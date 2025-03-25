@@ -1,33 +1,33 @@
-from scipy.io import loadmat
-import numpy as np
+import sys
 import os
 import glob
 import subprocess
-# pip install scikit-learn
+import numpy as np
 from sklearn.cluster import DBSCAN
-from sklearn.cluster import OPTICS
-import sys
+from scipy.io import loadmat
+from collections import defaultdict
 from scipy.spatial import KDTree
+import matplotlib.pyplot as plt
 
+################################
+# 1) Lê o arquivo .mat e extrai as fatias + pontos 3D
+################################
 def readScar(mat_filename):
     """
-    Lê os ROIs do arquivo .mat e retorna um array de pontos (X, Y, Z).
-    Mantém a lógica de 'fatias', mas ao final também gera um array unificado.
+    Lê os ROIs do arquivo .mat e retorna:
+      - fatias: dict { z_val: [(x, y), (x, y), ...], ... }
+      - pontos_3d: np.array shape (N, 3), para debug
     """
-    
     print(f"Reading file: {mat_filename}")
-    data = loadmat(mat_filename)  # Carrega o arquivo
+    data = loadmat(mat_filename)
     setstruct = data['setstruct']
-    
-    # Acessando o campo 'Roi' e os subcampos dinamicamente
     rois = setstruct[0][0]['Roi']
 
-    fatias = {}  # fatias[z] -> lista de (x, y) para aquele Z
+    fatias = {}  # { z: [(x, y), (x, y), ...] }
 
-    for idx, roi in enumerate(rois):  # Iterar sobre os ROIs do arquivo
+    for idx, roi in enumerate(rois):
         print(f"Processando ROI {idx+1}...")
         try:
-            # Extração das coordenadas X, Y e Z, se existirem
             x_coords = roi['X'] if 'X' in roi.dtype.names else None
             y_coords = roi['Y'] if 'Y' in roi.dtype.names else None
             z_values = roi['Z'] if 'Z' in roi.dtype.names else None
@@ -36,23 +36,20 @@ def readScar(mat_filename):
                 print(f"Erro: Dados incompletos para ROI {idx+1}")
                 continue
 
-            # Cada ROI pode conter várias fatias (slices), então iteramos sobre elas
             for i in range(len(z_values)):
                 x_arr = x_coords[i].flatten()
                 y_arr = y_coords[i].flatten()
-                z_val = float(z_values[i][0][0])  # Extrai o valor escalar de Z (uma fatia)
+                z_val = float(z_values[i][0][0])
 
                 if len(x_arr) == 0 or len(y_arr) == 0:
                     print(f"Erro: Fatia {z_val} do ROI {idx+1} está vazia.")
                     continue
 
-                # Se ainda não houver uma lista para esse valor de Z, criamos uma
                 if z_val not in fatias:
                     fatias[z_val] = []
                 
-                # Adicionar as coordenadas X, Y na lista do dicionário correspondente a esse Z
+                # Adiciona os pontos (x, y) nesta fatia
                 fatias[z_val].extend(zip(x_arr, y_arr))
-
 
                 print(f"Adicionado ROI {idx+1}, Fatia {z_val}, "
                       f"Pontos={len(x_arr)}")
@@ -60,24 +57,25 @@ def readScar(mat_filename):
         except Exception as e:
             print(f"Erro ao processar ROI {idx+1}: {e}")
 
-    # Agora criar um array unificado de (X, Y, Z) para uso na clusterização em 3D
+    # Cria um array unificado para debug
     pontos_3d = []
     for z, coords in fatias.items():
         for (x, y) in coords:
             pontos_3d.append([x, y, z])
+    pontos_3d = np.array(pontos_3d)
 
-    # Converte a lista para um array NumPy para melhor desempenho e uso na clusterização
-    pontos_3d = np.array(pontos_3d)  # shape (N, 3)
-    # A) Salva pontos originais (só pra debug, se quiser)
+    # (opcional) Salva os pontos originais
     np.savetxt("fibrosis_original.txt", pontos_3d)
 
-    # B) Aplica o mapeamento
+    # Aplica mapeamento de vértices
     mapped_fibrosis = apply_vertex_mapping(pontos_3d, "vertex_mapping.txt")
-
-    # C) Salva pontos fibroses já corrigidos
     np.savetxt("fibrosis_mapped.txt", mapped_fibrosis)
+
     return fatias, pontos_3d
 
+################################
+# 2) Aplica deslocamentos e salva as fatias em .txt
+################################
 def save_fatias_to_txt(fatias, output_dir="fatias"):
     """
     Salva coordenadas X, Y das fibroses em arquivos TXT separados por fatia (Z),
@@ -85,7 +83,7 @@ def save_fatias_to_txt(fatias, output_dir="fatias"):
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    # Carregar os deslocamentos aplicados ao coração
+    # Carrega deslocamentos
     try:
         endo_shifts_x = np.loadtxt("endo_shifts_x.txt")
         endo_shifts_y = np.loadtxt("endo_shifts_y.txt")
@@ -98,9 +96,7 @@ def save_fatias_to_txt(fatias, output_dir="fatias"):
         print(f"Salvando fatia {z} no arquivo: {filename}")
 
         with open(filename, "w") as file:
-            slice_idx = int(z)  # Assumindo que o valor de Z representa o índice da fatia
-            
-            # Verificar se o índice da fatia está dentro do intervalo dos deslocamentos
+            slice_idx = int(z)  # assumindo z como índice inteiro
             if 0 <= slice_idx < len(endo_shifts_x):
                 shift_x = endo_shifts_x[slice_idx]
                 shift_y = endo_shifts_y[slice_idx]
@@ -109,7 +105,6 @@ def save_fatias_to_txt(fatias, output_dir="fatias"):
                 shift_y = 0
                 print(f"Atenção: Fatia {slice_idx} fora do intervalo dos deslocamentos!")
 
-            # Escreve todos os pontos da fibrose com o deslocamento aplicado
             for x, y in coordenadas:
                 x_aligned = x - shift_x
                 y_aligned = y - shift_y
@@ -118,63 +113,150 @@ def save_fatias_to_txt(fatias, output_dir="fatias"):
     print("Arquivos de fatias gerados com sucesso!")
 
 
-def cluster_scar(pontos_3d, min_samples=10, xi=0.05, min_cluster_size=0.05):
+################################
+# 3) DBSCAN 2D por fatia
+################################
+
+def cluster_fibrosis_by_slice(fatias, eps_2d=2.0, min_samples_2d=5):
     """
-    Aplica OPTICS nos pontos 3D para agrupar fibroses.
-    
-    Parâmetros:
-    - min_samples: número mínimo de pontos para que um conjunto seja definido como cluster
-    - xi: controla o 'drop' na densidade para separar clusters (ajusta a sensibilidade)
-    - min_cluster_size: fracionário (ex: 0.05 = 5% do total) ou inteiro, número mínimo de pontos no cluster
-       (depende do que você precisa; ver doc do OPTICS)
-    
-    Retorna:
-    - dicionário: {cluster_id: lista_de_pontos (X,Y,Z)}
-    - lembrando que lbl = -1 indica outliers/noise
+    Aplica DBSCAN 2D para cada fatia.
+    Retorna { z: { cluster_id: [(x,y), (x,y), ...] }, ... }
     """
-    if len(pontos_3d) == 0:
-        print("Nenhum ponto para clusterizar.")
-        return {}
-
-    # Instancia o OPTICS
-    optics_model = OPTICS(
-        min_samples=min_samples, 
-        xi=xi,
-        min_cluster_size=min_cluster_size,
-        cluster_method='xi'  # ou 'dbscan', dependendo da estratégia desejada
-    )
-
-    # Ajusta e prediz o rótulo de cada ponto (labels) com base na densidade
-    labels = optics_model.fit_predict(pontos_3d)
-
-    # Monta o dicionário de clusters
-    clusters = {}
-    for i, lbl in enumerate(labels):
-        # lbl = -1 indica que o ponto foi marcado como outlier/noise
-        if lbl == -1:
+    clusters_2d_por_fatia = defaultdict(dict)
+    
+    for z, coords in fatias.items():
+        if not coords:
             continue
-        if lbl not in clusters:
-            clusters[lbl] = []
-        clusters[lbl].append(pontos_3d[i])
+        coords_array = np.array(coords)
+        if len(coords_array) < min_samples_2d:
+            # Cada ponto vira cluster isolado
+            for i, (x, y) in enumerate(coords_array):
+                clusters_2d_por_fatia[z][i] = [(x,y)]
+            continue
 
-    print(f"Encontrados {len(clusters)} clusters (excluindo outliers).")
-    return clusters
+        db_2d = DBSCAN(eps=eps_2d, min_samples=min_samples_2d).fit(coords_array)
+        labels_2d = db_2d.labels_
 
+        # unique_labels contém todos os labels de clusters, exceto -1 (outliers)
+        unique_labels = set(labels_2d) - {-1}
+        for lbl in unique_labels:
+            clusters_2d_por_fatia[z][lbl] = []
+
+        for i, lbl in enumerate(labels_2d):
+            if lbl == -1:
+                continue
+            x, y = coords_array[i]
+            clusters_2d_por_fatia[z][lbl].append((x, y))
+
+    return dict(clusters_2d_por_fatia)
+
+################################
+# 4) Cálculo de baricentros
+################################
+def compute_centroids_2d(clusters_2d_por_fatia):
+    """
+    Gera uma lista de objetos representando cada cluster 2D, com:
+      z, cluster_id, centroid, points
+    """
+    from collections import namedtuple
+    Cluster2D = namedtuple("Cluster2D", ["z", "cluster_id", "centroid", "points"])
+
+    result = []
+    for z, clusters_dict in clusters_2d_por_fatia.items():
+        for cid, pts_2d in clusters_dict.items():
+            arr = np.array(pts_2d)
+            centroid = arr.mean(axis=0)
+            c2d = Cluster2D(z=z, cluster_id=cid, centroid=centroid, points=pts_2d)
+            result.append(c2d)
+    return result
+
+################################
+# 5) Conecta baricentros em 3D
+################################
+from scipy.spatial import distance
+from collections import defaultdict
+def min_distance_between_clusters(cluster1, cluster2):
+    """
+    Calcula a menor distância entre quaisquer dois pontos de dois clusters 2D.
+    """
+    points1 = np.array(cluster1.points)
+    points2 = np.array(cluster2.points)
+
+    # Verifica se ambos os clusters têm pontos válidos
+    if points1.size == 0 or points2.size == 0:
+        return float('inf')  # Retorna infinito se algum estiver vazio
+    
+    return np.min(distance.cdist(points1, points2, 'euclidean'))
+
+
+def connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=3.0, slice_thickness=1.0, max_delta_z=1):
+    n = len(clusters_2d_list)
+    adj = [[] for _ in range(n)]  # Lista de adjacência do grafo
+
+    for i in range(n):
+        for j in range(i+1, n):
+            # Ignora clusters da mesma fatia
+            if clusters_2d_list[i].z == clusters_2d_list[j].z:
+                continue
+
+            # Respeita o limite de diferença em Z
+            if abs(clusters_2d_list[i].z - clusters_2d_list[j].z) > max_delta_z:
+                continue
+
+            d = min_distance_between_clusters(clusters_2d_list[i], clusters_2d_list[j])
+
+            dynamic_radius_3d = max(
+                base_radius_3d, 
+                (len(clusters_2d_list[i].points) + len(clusters_2d_list[j].points)) * 0.05
+            )
+
+            if d < dynamic_radius_3d:
+                adj[i].append(j)
+                adj[j].append(i)
+
+    # Algoritmo de DFS para encontrar componentes conexas
+    visited = [False] * n
+    componente = [-1] * n
+    comp_id = 0
+
+    def dfs(start):
+        stack = [start]
+        visited[start] = True
+        componente[start] = comp_id
+        while stack:
+            u = stack.pop()
+            for v in adj[u]:
+                if not visited[v]:
+                    visited[v] = True
+                    componente[v] = comp_id
+                    stack.append(v)
+
+    # Executar DFS para encontrar todas as componentes conexas
+    for i in range(n):
+        if not visited[i]:
+            dfs(i)
+            comp_id += 1
+
+    # Montar clusters 3D
+    clusters_3d = defaultdict(list)
+    for i, c2d in enumerate(clusters_2d_list):
+        cid = componente[i]
+        for (x, y) in c2d.points:
+            clusters_3d[cid].append((x, y, c2d.z))
+
+    return dict(clusters_3d)
+
+################################
+# 6) Salvar clusters 3D em .txt
+################################
 def save_clusters_to_txt(clusters, mat_filename, output_dir="clusters_dbscan"):
     """
-    Saves each cluster in a separate .txt file inside 'output_dir'.
-
-    For each cluster, it rescales:
-      x by resolution_x
-      y by resolution_y
-      z by slice_thickness
+    Para cada cluster, salva em cluster_<id>.txt, escalando (x, y, z) pela resolução do .mat.
     """
-
     print(f"Reading file: {mat_filename}")
-    data = loadmat(mat_filename)  # Loads the .mat file
+    data = loadmat(mat_filename)
     setstruct = data['setstruct']
 
-    # Extract slice thickness, slice gap, resolution, etc.
     slice_thickness = setstruct['SliceThickness'][0][0][0][0]
     slice_gap       = setstruct['SliceGap'][0][0][0][0]
     resolution_x    = setstruct['ResolutionX'][0][0][0][0]
@@ -184,38 +266,29 @@ def save_clusters_to_txt(clusters, mat_filename, output_dir="clusters_dbscan"):
     print("Resolutions:", resolution_x, resolution_y)
     print("------------------------------------------------------")
 
-    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
-    # Iterate over each cluster in the dictionary
     for lbl, pts in clusters.items():
         filename = os.path.join(output_dir, f"cluster_{lbl}.txt")
-        with open(filename, "w") as file:
-            for x, y, z in pts:
-                # Scale each coordinate
+        with open(filename, "w") as f:
+            for (x, y, z) in pts:
                 x_scaled = x * resolution_x
                 y_scaled = y * resolution_y
-                z_scaled = z * (slice_thickness + slice_gap)
-                file.write(f"{x_scaled} {y_scaled} {z_scaled}\n")
+                #z_scaled = z * (slice_thickness + slice_gap)
+                #print(f"Z: {z}, Z_scaled: {z_scaled}")
+                z_scaled = z * 1
+                f.write(f"{x_scaled} {y_scaled} {z_scaled}\n")
 
         print(f"Cluster {lbl} saved to: {filename}")
 
-
-
+################################
+# 7) Mapeamento de vértices (coração "suavizado"?)
+################################
 def apply_vertex_mapping(fibrosis_points, mapping_file):
     """
     Ajusta cada ponto de fibrose para a posição suavizada correspondente,
     de acordo com o vertex_mapping.txt gerado no C++.
-
-    Params:
-      - fibrosis_points: NumPy array (N, 3) com as coordenadas da fibrose no espaço 'original'
-      - mapping_file: path para 'vertex_mapping.txt'
-    
-    Return:
-      - NumPy array (N, 3) com as coordenadas ajustadas para o espaço 'suavizado'
     """
-    # Carrega arquivo de mapeamento
-    # Cada linha: i origX origY origZ smoothX smoothY smoothZ
     data_map = np.loadtxt(mapping_file)
     # data_map.shape -> (M, 7)
 
@@ -235,58 +308,80 @@ def apply_vertex_mapping(fibrosis_points, mapping_file):
     return np.array(corrected)
 
 
+def plot_clusters_2d_por_fatia(clusters_2d_por_fatia):
+    for z, clusters in sorted(clusters_2d_por_fatia.items()):
+        plt.figure(figsize=(6, 6))
+        for cid, pontos in clusters.items():
+            pts = np.array(pontos)
+            plt.scatter(pts[:, 0], pts[:, 1], label=f"Cluster {cid}")
+        plt.title(f"Fatia Z = {z}")
+        plt.gca().invert_yaxis()  # MRI costuma ter Y invertido
+        plt.legend()
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
+
+################################
+# MAIN: Pipeline completo
+################################
 if __name__ == "__main__":
-    # Verifica se o usuário passou o arquivo .mat como argumento
     if len(sys.argv) < 2:
         print("Erro: Nenhum arquivo .mat foi especificado.")
         print("Uso: python3 readScar.py <caminho_do_arquivo.mat>")
         sys.exit(1)
 
-    # Captura o argumento, que é o caminho do arquivo .mat
     mat_filename = sys.argv[1]
-    
-    # Ler os dados das ROIs
+
+    # 1) Ler ROIs
     fatias_data, pontos_3d = readScar(mat_filename)
 
-    # Salvar as fatias separadamente em arquivos .txt
+    # 2) Salvar fatias em .txt (opcional, para debug)
     save_fatias_to_txt(fatias_data, "fatias_txt")
 
-    # Aplicar OPTICS para agrupar as scars em 3D com parâmetros padrão
-    clusters = cluster_scar(
-        pontos_3d, 
-        min_samples=20,    # Ajuste conforme suas necessidades
-        xi=0.07,           # Ajuste para controlar a separação de densidade
-        min_cluster_size=0.02  # Pode ser 0.05 (5%) ou outro valor
+    # 3) Clusterizar em 2D cada fatia
+    clusters_2d_por_fatia = cluster_fibrosis_by_slice(
+        fatias_data, 
+        eps_2d=2, 
+        min_samples_2d=1
     )
-    # Salvar cada cluster resultante em um arquivo de texto individual
-    # (ex.: cluster_0.txt, cluster_1.txt, cluster_2.txt, etc.)
-    save_clusters_to_txt(clusters, mat_filename, "clusters_dbscan")
 
-    # Passo 3: Gera superfícies para TODOS os arquivos cluster_*.txt na pasta clusters_dbscan
+    #PLOTAR CLUSTER 2D POR FATIA
+    plot_clusters_2d_por_fatia(clusters_2d_por_fatia)
+
+    # 4) Calcular baricentros
+    clusters_2d_list = compute_centroids_2d(clusters_2d_por_fatia)
+
+    # 5) Conectar em 3D via baricentros
+    clusters_3d = connect_2d_clusters_in_3d(
+        clusters_2d_list, 
+        base_radius_3d=1, 
+        slice_thickness=1
+    )
+
+    # 6) Salvar clusters em TXT
+    save_clusters_to_txt(clusters_3d, mat_filename, "clusters_dbscan")
+
+    # 7) Gera superfícies .ply para cada cluster
     cluster_txt_files = sorted(glob.glob("./clusters_dbscan/cluster_*.txt"))
-
     for surface_file in cluster_txt_files:
         try:
-            # --cover-both-ends é só um exemplo de parâmetro adicional, ajuste conforme necessário
             surface_command = f"python3 make_surface.py {surface_file} --cover-both-ends"
             subprocess.run(surface_command, shell=True, check=True)
             print(f"Superfície gerada para {surface_file}")
         except subprocess.CalledProcessError as e:
             print(f"Erro ao gerar superfície para {surface_file}: {e}")
 
-    # Passo 4: Converte cada arquivo .ply (cluster_X.ply) em .stl (cluster_X.stl)
-    # A make_surface.py deve gerar os arquivos .ply em ./output/plyFiles/cluster_X.ply
+    # 8) Converte cada .ply em .stl
     for surface_file in cluster_txt_files:
-        # Extrai o nome do cluster (ex.: "cluster_2")
-        cluster_name = os.path.splitext(os.path.basename(surface_file))[0]  # cluster_2
-
-        # Monta o caminho para o .ply que o make_surface.py deve ter criado
+        cluster_name = os.path.splitext(os.path.basename(surface_file))[0]
         ply_file = f"./output/plyFiles/{cluster_name}.ply"
-        # Define o STL de saída
         stl_output = f"./output/scarFiles/{cluster_name}.stl"
 
         if not os.path.exists(ply_file):
-            print(f"Erro: não existe arquivo PLY gerado para {ply_file}. Verifique o make_surface.py.")
+            print(f"Erro: não existe arquivo PLY gerado para {ply_file}.")
             continue
 
         try:
@@ -295,4 +390,3 @@ if __name__ == "__main__":
             print(f"STL gerado com sucesso: {stl_output}")
         except subprocess.CalledProcessError as e:
             print(f"Erro ao converter {ply_file} para {stl_output}: {e}")
-
