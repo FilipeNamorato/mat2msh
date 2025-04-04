@@ -58,6 +58,6 @@ def plotar_rois_3d(rois_extraidos):
 
 
 if __name__ == '__main__':
-    caminho_mat = '../segmentacoesPacientes/comRoi/Patient_2.mat'  # Atualize com o caminho real
+    caminho_mat = '../segmentacoesPacientes/comRoi/Pacient_1.mat'  # Atualize com o caminho real
     rois = extrair_rois_com_z(caminho_mat)
     plotar_rois_3d(rois)

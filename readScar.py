@@ -14,62 +14,81 @@ import matplotlib.pyplot as plt
 ################################
 def readScar(mat_filename):
     """
-    Lê os ROIs do arquivo .mat e retorna:
-      - fatias: dict { z_val: [(x, y), (x, y), ...], ... }
-      - pontos_3d: np.array shape (N, 3), para debug
+    Lê o arquivo .mat, extrai cada ROI e armazena num dicionário:
+      {
+        z_val : {
+          roi_name : [(x,y), (x,y), ...],
+          ...
+        },
+        ...
+      }
+    Também retorna pontos_3d unificados apenas para debug/plot.
     """
-    print(f"Reading file: {mat_filename}")
+    import numpy as np
+    from scipy.io import loadmat
+
+    print(f"Reading file (ROI-based): {mat_filename}")
     data = loadmat(mat_filename)
     setstruct = data['setstruct']
-    rois = setstruct[0][0]['Roi']
+    rois = setstruct[0][0]['Roi']  # array de ROIs
 
-    fatias = {}  # { z: [(x, y), (x, y), ...] }
+    # dicionário: {z_val: {roi_name: [(x,y), (x,y), ...]}}
+    fatias = {}
+    pontos_3d = []
 
     for idx, roi in enumerate(rois):
-        print(f"Processando ROI {idx+1}...")
-        try:
-            x_coords = roi['X'] if 'X' in roi.dtype.names else None
-            y_coords = roi['Y'] if 'Y' in roi.dtype.names else None
-            z_values = roi['Z'] if 'Z' in roi.dtype.names else None
+        # 1) Lê o campo 'Name'
+        #Precisamos de [0][0] para chegar na string real.
+        #Ex.: se printar rois['Name'][0][0], obtenho ['ROI-1'] (array),
+        #mas rois['Name'][0][0][0] => 'ROI-1' (str).
+        
+        #Como cada 'roi' é um elemento do array, faz-se roi['Name'][0][0] => array(['ROI-1']).
+        #Então [0] adicional pega a string 'ROI-1' em si.
+        roi_name_raw = roi['Name'][0][0][0]  # deve ser algo como 'ROI-1'
+        roi_name = str(roi_name_raw).strip()
 
-            if x_coords is None or y_coords is None or z_values is None:
-                print(f"Erro: Dados incompletos para ROI {idx+1}")
+        # 2) Lê arrays de X, Y, Z (caso existam no dtype)
+        x_coords = roi['X'] if 'X' in roi.dtype.names else None
+        y_coords = roi['Y'] if 'Y' in roi.dtype.names else None
+        z_vals   = roi['Z'] if 'Z' in roi.dtype.names else None
+
+        if x_coords is None or y_coords is None or z_vals is None:
+            print(f"[readScar] ROI {idx+1} ('{roi_name}') sem X/Y/Z. Pulando.")
+            continue
+
+        # 3) Itera sobre todas as sub-fatias desse ROI
+        num_slices = len(z_vals)
+        for i in range(num_slices):
+            # Cada z_vals[i] normalmente é do tipo [[algum_valor]]
+            z_i = int(z_vals[i][0][0])
+
+            x_arr = x_coords[i].flatten()
+            y_arr = y_coords[i].flatten()
+
+            if len(x_arr) == 0 or len(y_arr) == 0:
+                print(f"[readScar] ROI '{roi_name}' sub-fatia {i} está vazia.")
                 continue
 
-            for i in range(len(z_values)):
-                x_arr = x_coords[i].flatten()
-                y_arr = y_coords[i].flatten()
-                z_val = float(z_values[i][0][0])
+            # Monta lista de tuplas (x,y)
+            coords_2d = list(zip(x_arr, y_arr))
 
-                if len(x_arr) == 0 or len(y_arr) == 0:
-                    print(f"Erro: Fatia {z_val} do ROI {idx+1} está vazia.")
-                    continue
+            # 4) Guarda no dicionário, garantindo que cada ROI numa fatia é um cluster separado
+            if z_i not in fatias:
+                fatias[z_i] = {}
+            if roi_name not in fatias[z_i]:
+                fatias[z_i][roi_name] = []
 
-                if z_val not in fatias:
-                    fatias[z_val] = []
-                
-                # Adiciona os pontos (x, y) nesta fatia
-                fatias[z_val].extend(zip(x_arr, y_arr))
+            fatias[z_i][roi_name].extend(coords_2d)
 
-                print(f"Adicionado ROI {idx+1}, Fatia {z_val}, "
-                      f"Pontos={len(x_arr)}")
+            # 5) Também guarda em pontos_3d para debug
+            for (xx, yy) in coords_2d:
+                pontos_3d.append([xx, yy, z_i])
 
-        except Exception as e:
-            print(f"Erro ao processar ROI {idx+1}: {e}")
-
-    # Cria um array unificado para debug
-    pontos_3d = []
-    for z, coords in fatias.items():
-        for (x, y) in coords:
-            pontos_3d.append([x, y, z])
+    # Converte em array (debug)
     pontos_3d = np.array(pontos_3d)
 
-    # (opcional) Salva os pontos originais
+    # Salva debug (opcional)
     np.savetxt("fibrosis_original.txt", pontos_3d)
-
-    # Aplica mapeamento de vértices
-    mapped_fibrosis = apply_vertex_mapping(pontos_3d, "vertex_mapping.txt")
-    np.savetxt("fibrosis_mapped.txt", mapped_fibrosis)
 
     return fatias, pontos_3d
 
@@ -77,13 +96,10 @@ def readScar(mat_filename):
 # 2) Aplica deslocamentos e salva as fatias em .txt
 ################################
 def save_fatias_to_txt(fatias, output_dir="fatias"):
-    """
-    Salva coordenadas X, Y das fibroses em arquivos TXT separados por fatia (Z),
-    aplicando o deslocamento do alinhamento do miocárdio.
-    """
+    import os
     os.makedirs(output_dir, exist_ok=True)
 
-    # Carrega deslocamentos
+    # Tenta carregar deslocamentos
     try:
         endo_shifts_x = np.loadtxt("endo_shifts_x.txt")
         endo_shifts_y = np.loadtxt("endo_shifts_y.txt")
@@ -91,65 +107,30 @@ def save_fatias_to_txt(fatias, output_dir="fatias"):
         print(f"Erro ao carregar deslocamentos: {e}")
         return
 
-    for z, coordenadas in fatias.items():
+    # fatias = { z_val: { roi_name: [(x,y), ...], ... }, ... }
+    for z, dict_clusters in fatias.items():
         filename = os.path.join(output_dir, f"fatia_{int(z)}.txt")
         print(f"Salvando fatia {z} no arquivo: {filename}")
 
-        with open(filename, "w") as file:
-            slice_idx = int(z)  # assumindo z como índice inteiro
-            if 0 <= slice_idx < len(endo_shifts_x):
-                shift_x = endo_shifts_x[slice_idx]
-                shift_y = endo_shifts_y[slice_idx]
-            else:
-                shift_x = 0
-                shift_y = 0
-                print(f"Atenção: Fatia {slice_idx} fora do intervalo dos deslocamentos!")
+        slice_idx = int(z)
+        if 0 <= slice_idx < len(endo_shifts_x):
+            shift_x = endo_shifts_x[slice_idx]
+            shift_y = endo_shifts_y[slice_idx]
+        else:
+            shift_x = 0
+            shift_y = 0
 
-            for x, y in coordenadas:
-                x_aligned = x - shift_x
-                y_aligned = y - shift_y
-                file.write(f"{x_aligned} {y_aligned} {z}\n")
+        with open(filename, "w") as file:
+            # Percorre cada ROI dessa fatia
+            for roi_name, coords_lista in dict_clusters.items():
+                # coords_lista deve ser [(x1, y1), (x2, y2), ...]
+                for (x, y) in coords_lista:
+                    x_aligned = x - shift_x
+                    y_aligned = y - shift_y
+                    file.write(f"{x_aligned} {y_aligned} {z}\n")
 
     print("Arquivos de fatias gerados com sucesso!")
-
-
-################################
-# 3) DBSCAN 2D por fatia
-################################
-
-def cluster_fibrosis_by_slice(fatias, eps_2d=2.0, min_samples_2d=5):
-    """
-    Aplica DBSCAN 2D para cada fatia.
-    Retorna { z: { cluster_id: [(x,y), (x,y), ...] }, ... }
-    """
-    clusters_2d_por_fatia = defaultdict(dict)
     
-    for z, coords in fatias.items():
-        if not coords:
-            continue
-        coords_array = np.array(coords)
-        if len(coords_array) < min_samples_2d:
-            # Cada ponto vira cluster isolado
-            for i, (x, y) in enumerate(coords_array):
-                clusters_2d_por_fatia[z][i] = [(x,y)]
-            continue
-
-        db_2d = DBSCAN(eps=eps_2d, min_samples=min_samples_2d).fit(coords_array)
-        labels_2d = db_2d.labels_
-
-        # unique_labels contém todos os labels de clusters, exceto -1 (outliers)
-        unique_labels = set(labels_2d) - {-1}
-        for lbl in unique_labels:
-            clusters_2d_por_fatia[z][lbl] = []
-
-        for i, lbl in enumerate(labels_2d):
-            if lbl == -1:
-                continue
-            x, y = coords_array[i]
-            clusters_2d_por_fatia[z][lbl].append((x, y))
-
-    return dict(clusters_2d_por_fatia)
-
 ################################
 # 4) Cálculo de baricentros
 ################################
@@ -274,55 +255,12 @@ def save_clusters_to_txt(clusters, mat_filename, output_dir="clusters_dbscan"):
             for (x, y, z) in pts:
                 x_scaled = x * resolution_x
                 y_scaled = y * resolution_y
-                #z_scaled = z * (slice_thickness + slice_gap)
+                z_scaled = z * (slice_thickness + slice_gap)
                 #print(f"Z: {z}, Z_scaled: {z_scaled}")
-                z_scaled = z * 1
+                #z_scaled = z * 1
                 f.write(f"{x_scaled} {y_scaled} {z_scaled}\n")
 
         print(f"Cluster {lbl} saved to: {filename}")
-
-################################
-# 7) Mapeamento de vértices (coração "suavizado"?)
-################################
-def apply_vertex_mapping(fibrosis_points, mapping_file):
-    """
-    Ajusta cada ponto de fibrose para a posição suavizada correspondente,
-    de acordo com o vertex_mapping.txt gerado no C++.
-    """
-    data_map = np.loadtxt(mapping_file)
-    # data_map.shape -> (M, 7)
-
-    orig_coords   = data_map[:, 1:4]  # colunas (origX, origY, origZ)
-    smooth_coords = data_map[:, 4:7]  # colunas (smoothX, smoothY, smoothZ)
-
-    # Cria um KDTree com os pontos originais do coração
-    tree = KDTree(orig_coords)
-
-    corrected = []
-    for p in fibrosis_points:
-        dist, idx = tree.query(p)  # idx do vértice mais próximo
-        # Posição suavizada correspondente
-        new_p = smooth_coords[idx]
-        corrected.append(new_p)
-
-    return np.array(corrected)
-
-
-def plot_clusters_2d_por_fatia(clusters_2d_por_fatia):
-    for z, clusters in sorted(clusters_2d_por_fatia.items()):
-        plt.figure(figsize=(6, 6))
-        for cid, pontos in clusters.items():
-            pts = np.array(pontos)
-            plt.scatter(pts[:, 0], pts[:, 1], label=f"Cluster {cid}")
-        plt.title(f"Fatia Z = {z}")
-        plt.gca().invert_yaxis()  # MRI costuma ter Y invertido
-        plt.legend()
-        plt.xlabel("X")
-        plt.ylabel("Y")
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
-
 
 ################################
 # MAIN: Pipeline completo
@@ -338,26 +276,20 @@ if __name__ == "__main__":
     # 1) Ler ROIs
     fatias_data, pontos_3d = readScar(mat_filename)
 
+    print("Chaves de fatias_data:", sorted(fatias_data.keys()))
+    for z_val, rois_dict in fatias_data.items():
+        print(f"Z={z_val}, ROIs={list(rois_dict.keys())}")
+
     # 2) Salvar fatias em .txt (opcional, para debug)
     save_fatias_to_txt(fatias_data, "fatias_txt")
 
-    # 3) Clusterizar em 2D cada fatia
-    clusters_2d_por_fatia = cluster_fibrosis_by_slice(
-        fatias_data, 
-        eps_2d=2, 
-        min_samples_2d=1
-    )
-
-    #PLOTAR CLUSTER 2D POR FATIA
-    plot_clusters_2d_por_fatia(clusters_2d_por_fatia)
-
     # 4) Calcular baricentros
-    clusters_2d_list = compute_centroids_2d(clusters_2d_por_fatia)
+    clusters_2d_list = compute_centroids_2d(fatias_data)
 
     # 5) Conectar em 3D via baricentros
     clusters_3d = connect_2d_clusters_in_3d(
         clusters_2d_list, 
-        base_radius_3d=1, 
+        base_radius_3d=0.5, 
         slice_thickness=1
     )
 

@@ -6,8 +6,12 @@ import argparse
 import shutil
 
 def execute_commands(input_file):
+    #shutil.rmtree("./output/plyFiles")
+    #shutil.rmtree("./output/scarFiles")
+    #shutil.rmtree("./clusters_dbscan")
+
     # Fixed patient ID for processing
-    patient_id = "Patient_1"
+    patient_id = "Patient_1" #ALTERAR PARA VARIAR CONFORME NOME ARQUIVO
 
     # Create the output folder with the current date
     date_str = datetime.now().strftime("%Y%m%d")
@@ -18,8 +22,16 @@ def execute_commands(input_file):
     stl_srf = f"{output_dir}/stlFiles"
     msh_srf = f"{output_dir}/mshFiles"
     scar_srf = f"output/scarFiles"
+    if os.path.exists(stl_srf):
+        shutil.rmtree(stl_srf)
     os.makedirs(stl_srf, exist_ok=True)
+
+    if os.path.exists(msh_srf):
+        shutil.rmtree(msh_srf)
     os.makedirs(msh_srf, exist_ok=True)
+
+    if os.path.exists(scar_srf):
+        shutil.rmtree(scar_srf)
     os.makedirs(scar_srf, exist_ok=True)
     print("========================================================================================")
     # Step 1: Process the .mat file
@@ -127,6 +139,7 @@ def execute_commands(input_file):
     except subprocess.CalledProcessError as e:
         print(f"Error executing readScar.py: {e}")
         return
+    #exit(0)
 
 
     # Command with os.system
@@ -151,10 +164,10 @@ def execute_commands(input_file):
     os.remove("./endo_shifts_y.txt")
     os.remove("./epi_shifts_x.txt")
     os.remove("./epi_shifts_y.txt")
-    os.remove("./fibrosis_mapped.txt")
+    #os.remove("./fibrosis_mapped.txt")
     os.remove("./fibrosis_original.txt")
     
-    shutil.rmtree("./output/plyFiles")
+    #shutil.rmtree("./output/plyFiles")
     #shutil.rmtree("./output/scarFiles")
 
 # Main entry point
