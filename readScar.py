@@ -90,6 +90,10 @@ def readScar(mat_filename):
     # Salva debug (opcional)
     np.savetxt("fibrosis_original.txt", pontos_3d)
 
+    # Aplica mapeamento de vértices
+    mapped_fibrosis = apply_vertex_mapping(pontos_3d, "vertex_mapping.txt")
+    np.savetxt("fibrosis_mapped.txt", mapped_fibrosis)
+
     return fatias, pontos_3d
 
 ################################
@@ -261,6 +265,49 @@ def save_clusters_to_txt(clusters, mat_filename, output_dir="clusters_dbscan"):
                 f.write(f"{x_scaled} {y_scaled} {z_scaled}\n")
 
         print(f"Cluster {lbl} saved to: {filename}")
+
+################################
+# 7) Mapeamento de vértices (coração "suavizado"?)
+################################
+def apply_vertex_mapping(fibrosis_points, mapping_file):
+    """
+    Ajusta cada ponto de fibrose para a posição suavizada correspondente,
+    de acordo com o vertex_mapping.txt gerado no C++.
+    """
+    data_map = np.loadtxt(mapping_file)
+    # data_map.shape -> (M, 7)
+
+    orig_coords   = data_map[:, 1:4]  # colunas (origX, origY, origZ)
+    smooth_coords = data_map[:, 4:7]  # colunas (smoothX, smoothY, smoothZ)
+
+    # Cria um KDTree com os pontos originais do coração
+    tree = KDTree(orig_coords)
+
+    corrected = []
+    for p in fibrosis_points:
+        dist, idx = tree.query(p)  # idx do vértice mais próximo
+        # Posição suavizada correspondente
+        new_p = smooth_coords[idx]
+        corrected.append(new_p)
+
+    return np.array(corrected)
+
+
+def plot_clusters_2d_por_fatia(clusters_2d_por_fatia):
+    for z, clusters in sorted(clusters_2d_por_fatia.items()):
+        plt.figure(figsize=(6, 6))
+        for cid, pontos in clusters.items():
+            pts = np.array(pontos)
+            plt.scatter(pts[:, 0], pts[:, 1], label=f"Cluster {cid}")
+        plt.title(f"Fatia Z = {z}")
+        plt.gca().invert_yaxis()  # MRI costuma ter Y invertido
+        plt.legend()
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
 
 ################################
 # MAIN: Pipeline completo

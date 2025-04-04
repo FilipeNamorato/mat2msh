@@ -6,10 +6,6 @@ import argparse
 import shutil
 
 def execute_commands(input_file):
-    #shutil.rmtree("./output/plyFiles")
-    #shutil.rmtree("./output/scarFiles")
-    #shutil.rmtree("./clusters_dbscan")
-
     # Fixed patient ID for processing
     patient_id = "Patient_1" #ALTERAR PARA VARIAR CONFORME NOME ARQUIVO
 
@@ -164,7 +160,7 @@ def execute_commands(input_file):
     os.remove("./endo_shifts_y.txt")
     os.remove("./epi_shifts_x.txt")
     os.remove("./epi_shifts_y.txt")
-    #os.remove("./fibrosis_mapped.txt")
+    os.remove("./fibrosis_mapped.txt")
     os.remove("./fibrosis_original.txt")
     
     #shutil.rmtree("./output/plyFiles")
