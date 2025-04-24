@@ -152,7 +152,9 @@ def compute_centroids_2d(clusters_2d_por_fatia):
     for z, clusters_dict in clusters_2d_por_fatia.items():
         for cid, pts_2d in clusters_dict.items():
             arr = np.array(pts_2d)
-            centroid = arr.mean(axis=0)
+            centroid = arr.mean(axis=0)       
+            # impressão do baricentro
+            print(f"[Centroid] ROI '{cid}' na fatia Z={z}: (x={centroid[0]:.2f}, y={centroid[1]:.2f})")
             result.append(Cluster2D(z, cid, centroid, pts_2d))
     return result
 
@@ -230,7 +232,7 @@ def save_clusters_to_txt(clusters, mat_filename, output_dir="clusters_dbscan"):
 ################################
 def generate_surfaces_and_stl():
     """
-    Para cada arquivo cluster_<id>.txt:
+    Para cada arquivo cluster_id.txt:
       1) chama make_surface.py para gerar .ply
       2) converte .ply em .stl usando PlyToStl
     """
