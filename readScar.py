@@ -1,371 +1,281 @@
-import sys
-import os
-import glob
-import subprocess
+# Pipeline de Extração e Processamento de Fibrose (ROI para Cicatriz em 3D)
+# =============================================================================
+# Este script realiza todo o fluxo de trabalho para extrair regiões de interesse (ROIs)
+# de um arquivo .mat de ressonância magnética, aplicar alinhamento, agrupar pontos
+# 2D por fatias, calcular centróides e conectar essas ROIs 2D em estruturas 3D (cicatrizes),
+# além de gerar malhas de superfície e arquivos STL.
+#
+# Etapas principais:
+# 1) Leitura do .mat e extração de ROIs: obtém nome, coordenadas (X,Y) e índice de fatia (Z).
+# 2) Agrupamento por fatia: organiza pontos em um dicionário fatiass -> {z: {roi_name: [pts]}}.
+# 3) Visualização 2D: plota cada fatia mostrando pontos e seus centróides para conferência.
+# 4) Alinhamento e gravação de fatias: aplica deslocamentos (shifts) em X e Y
+#    e grava arquivos .txt para cada fatia com coordenadas alinhadas.
+# 5) Cálculo de centróides 2D: gera objetos com coordenadas médias por ROI em cada fatia.
+# 6) Conexão 2D→3D: monta um grafo de adjacência entre centróides de fatias
+#    consecutivas e encontra componentes conexas, formando clusters 3D.
+# 7) Gravação de clusters 3D: salva cada cluster em .txt usando resolução e espessura
+#    de fatia para dimensionar corretamente X, Y e Z.
+# 8) Geração de superfícies e STL: cria malhas .ply e converte para STL para modelagem.
+# =============================================================================
+import sys, os, glob, subprocess, argparse
+from collections import namedtuple, defaultdict
+
 import numpy as np
-from sklearn.cluster import DBSCAN
-from scipy.io import loadmat
-from collections import defaultdict
-from scipy.spatial import KDTree
 import matplotlib.pyplot as plt
+from scipy.io import loadmat
+from scipy.spatial import distance, KDTree
+from sklearn.cluster import DBSCAN
+
+# Estrutura simples para cada ROI em uma fatia: nome, índice Z e lista de pontos (x,y)
+ROIEntry = namedtuple('ROIEntry', ['name', 'z', 'points'])
 
 ################################
-# 1) Lê o arquivo .mat e extrai as fatias + pontos 3D
+# 1) Leitura do .mat e extração de ROIs
 ################################
 def readScar(mat_filename):
     """
-    Lê o arquivo .mat, extrai cada ROI e armazena num dicionário:
-      {
-        z_val : {
-          roi_name : [(x,y), (x,y), ...],
-          ...
-        },
-        ...
-      }
-    Também retorna pontos_3d unificados apenas para debug/plot.
+    Lê o arquivo .mat e retorna uma lista plana de ROIEntry.
+    Cada ROIEntry contém:
+      - name: nome da ROI (ex: "ROI-1")
+      - z: índice da fatia onde essa ROI foi anotada
+      - points: lista de tuplas (x,y) dos pontos da ROI
+
+    Explicação:
+    - "setstruct" é a estrutura MATLAB com metadados e ROIs.
+    - Extraímos de cada ROI seus arrays X, Y, Z e o nome para cada elemento.
+    - Para cada sub-fat ia (índice i), associamos o nome correto e empacotamos
+      os pontos convertidos em Python.
     """
-    import numpy as np
-    from scipy.io import loadmat
-
-    print(f"Reading file (ROI-based): {mat_filename}")
+    print(f"Reading ROIs from: {mat_filename}")
     data = loadmat(mat_filename)
-    setstruct = data['setstruct']
-    rois = setstruct[0][0]['Roi']  # array de ROIs
+    rois = data['setstruct'][0][0]['Roi']
 
-    # dicionário: {z_val: {roi_name: [(x,y), (x,y), ...]}}
-    fatias = {}
-    pontos_3d = []
-
+    entries = []
     for idx, roi in enumerate(rois):
-        # 1) Lê o campo 'Name'
-        #Precisamos de [0][0] para chegar na string real.
-        #Ex.: se printar rois['Name'][0][0], obtenho ['ROI-1'] (array),
-        #mas rois['Name'][0][0][0] => 'ROI-1' (str).
-        
-        #Como cada 'roi' é um elemento do array, faz-se roi['Name'][0][0] => array(['ROI-1']).
-        #Então [0] adicional pega a string 'ROI-1' em si.
-        roi_name_raw = roi['Name'][0][0][0]  # deve ser algo como 'ROI-1'
-        roi_name = str(roi_name_raw).strip()
-
-        # 2) Lê arrays de X, Y, Z (caso existam no dtype)
-        x_coords = roi['X'] if 'X' in roi.dtype.names else None
-        y_coords = roi['Y'] if 'Y' in roi.dtype.names else None
-        z_vals   = roi['Z'] if 'Z' in roi.dtype.names else None
-
-        if x_coords is None or y_coords is None or z_vals is None:
-            print(f"[readScar] ROI {idx+1} ('{roi_name}') sem X/Y/Z. Pulando.")
-            continue
-
-        # 3) Itera sobre todas as sub-fatias desse ROI
-        num_slices = len(z_vals)
-        for i in range(num_slices):
-            # Cada z_vals[i] normalmente é do tipo [[algum_valor]]
-            z_i = int(z_vals[i][0][0])
-
-            x_arr = x_coords[i].flatten()
-            y_arr = y_coords[i].flatten()
-
-            if len(x_arr) == 0 or len(y_arr) == 0:
-                print(f"[readScar] ROI '{roi_name}' sub-fatia {i} está vazia.")
-                continue
-
-            # Monta lista de tuplas (x,y)
-            coords_2d = list(zip(x_arr, y_arr))
-
-            # 4) Guarda no dicionário, garantindo que cada ROI numa fatia é um cluster separado
-            if z_i not in fatias:
-                fatias[z_i] = {}
-            if roi_name not in fatias[z_i]:
-                fatias[z_i][roi_name] = []
-
-            fatias[z_i][roi_name].extend(coords_2d)
-
-            # 5) Também guarda em pontos_3d para debug
-            for (xx, yy) in coords_2d:
-                pontos_3d.append([xx, yy, z_i])
-
-    # Converte em array (debug)
-    pontos_3d = np.array(pontos_3d)
-
-    # Salva debug (opcional)
-    np.savetxt("fibrosis_original.txt", pontos_3d)
-
-    # Aplica mapeamento de vértices
-    mapped_fibrosis = apply_vertex_mapping(pontos_3d, "vertex_mapping.txt")
-    np.savetxt("fibrosis_mapped.txt", mapped_fibrosis)
-
-    return fatias, pontos_3d
+        # Extrai lista de nomes para cada sub-fat ia
+        raw_names = roi['Name'].flatten()
+        slice_names = []
+        for element in raw_names:
+            # Converte array numpy para string
+            if isinstance(element, np.ndarray):
+                val = element.flat[0]
+            else:
+                val = element
+            slice_names.append(str(val).strip())
+        # Arrays de coordenadas
+        X = roi['X']; Y = roi['Y']; Z = roi['Z']
+        # Para cada sub-fatia, empacota um ROIEntry
+        for i in range(len(Z)):
+            z_val = int(np.atleast_1d(Z[i]).flat[0])
+            x_arr = np.atleast_1d(X[i]).flatten()
+            y_arr = np.atleast_1d(Y[i]).flatten()
+            if x_arr.size == 0 or y_arr.size == 0:
+                continue  # sem pontos nesta sub-fatia
+            name = slice_names[i] if i < len(slice_names) else slice_names[0]
+            pts = list(zip(x_arr, y_arr))
+            entries.append(ROIEntry(name, z_val, pts))
+    return entries
 
 ################################
-# 2) Aplica deslocamentos e salva as fatias em .txt
+# 2) Agrupamento de ROIs por fatia
 ################################
-def save_fatias_to_txt(fatias, output_dir="fatias"):
-    import os
+def group_by_slice(entries):
+    """
+    Recebe lista de ROIEntry e retorna:
+      { z: { roi_name: [ (x,y), ... ], ... }, ... }
+    """
+    fatias = defaultdict(lambda: defaultdict(list))
+    for e in entries:
+        fatias[e.z][e.name].extend(e.points)
+    return fatias
+
+################################
+# 3) Visualização 2D das fatias
+################################
+def plot_slices(fatias):
+    """
+    Para conferência, plota cada fatia mostrando:
+      - Pontos de cada ROI coloridos
+      - Nome e centróide marcado
+    """
+    for z, roi_map in sorted(fatias.items()):
+        plt.figure(figsize=(6,6))
+        for name, pts in roi_map.items():
+            arr = np.array(pts)
+            plt.scatter(arr[:,0], arr[:,1], label=name, s=20)
+            cen = arr.mean(axis=0)
+            plt.text(cen[0], cen[1], name,
+                     ha='center', va='center', fontsize=8,
+                     bbox=dict(boxstyle='round,pad=0.2', alpha=0.5))
+        plt.title(f"Slice Z={z}")
+        plt.gca().invert_yaxis()
+        plt.legend(fontsize=7)
+        plt.xlabel('X'); plt.ylabel('Y')
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
+################################
+# 4) Alinhamento e gravação de fatias em .txt
+################################
+def save_fatias_to_txt(fatias, shifts_x_file, shifts_y_file, output_dir="fatias"):
+    """
+    Aplica deslocamentos (shifts) em X/Y para cada fatia e salva em "fatias/".
+    Arquivos: fatia_<z>.txt contendo linhas "x_alinhado y_alinhado z".
+    """
     os.makedirs(output_dir, exist_ok=True)
+    shifts_x = np.loadtxt(shifts_x_file)
+    shifts_y = np.loadtxt(shifts_y_file)
+    for z, roi_map in sorted(fatias.items()):
+        # Seleciona shift adequado ou zero se fora do alcance
+        sx = shifts_x[z] if 0 <= z < len(shifts_x) else 0
+        sy = shifts_y[z] if 0 <= z < len(shifts_y) else 0
+        fname = os.path.join(output_dir, f"fatia_{z}.txt")
+        with open(fname, 'w') as f:
+            for pts in roi_map.values():
+                for x, y in pts:
+                    f.write(f"{x - sx} {y - sy} {z}\n")
+        print(f"Saved slice {z} to {fname}")
 
-    # Tenta carregar deslocamentos
-    try:
-        endo_shifts_x = np.loadtxt("endo_shifts_x.txt")
-        endo_shifts_y = np.loadtxt("endo_shifts_y.txt")
-    except Exception as e:
-        print(f"Erro ao carregar deslocamentos: {e}")
-        return
-
-    # fatias = { z_val: { roi_name: [(x,y), ...], ... }, ... }
-    for z, dict_clusters in fatias.items():
-        filename = os.path.join(output_dir, f"fatia_{int(z)}.txt")
-        print(f"Salvando fatia {z} no arquivo: {filename}")
-
-        slice_idx = int(z)
-        if 0 <= slice_idx < len(endo_shifts_x):
-            shift_x = endo_shifts_x[slice_idx]
-            shift_y = endo_shifts_y[slice_idx]
-        else:
-            shift_x = 0
-            shift_y = 0
-
-        with open(filename, "w") as file:
-            # Percorre cada ROI dessa fatia
-            for roi_name, coords_lista in dict_clusters.items():
-                # coords_lista deve ser [(x1, y1), (x2, y2), ...]
-                for (x, y) in coords_lista:
-                    x_aligned = x - shift_x
-                    y_aligned = y - shift_y
-                    file.write(f"{x_aligned} {y_aligned} {z}\n")
-
-    print("Arquivos de fatias gerados com sucesso!")
-    
 ################################
-# 4) Cálculo de baricentros
+# 5) Cálculo de centróides por cluster 2D
 ################################
 def compute_centroids_2d(clusters_2d_por_fatia):
     """
-    Gera uma lista de objetos representando cada cluster 2D, com:
-      z, cluster_id, centroid, points
+    Gera lista de objetos Cluster2D(z, cluster_id, centroid, points)
+    para uso no agrupamento 3D.
     """
     from collections import namedtuple
-    Cluster2D = namedtuple("Cluster2D", ["z", "cluster_id", "centroid", "points"])
-
+    Cluster2D = namedtuple('Cluster2D', ['z', 'cluster_id', 'centroid', 'points'])
     result = []
     for z, clusters_dict in clusters_2d_por_fatia.items():
         for cid, pts_2d in clusters_dict.items():
             arr = np.array(pts_2d)
             centroid = arr.mean(axis=0)
-            c2d = Cluster2D(z=z, cluster_id=cid, centroid=centroid, points=pts_2d)
-            result.append(c2d)
+            result.append(Cluster2D(z, cid, centroid, pts_2d))
     return result
 
 ################################
-# 5) Conecta baricentros em 3D
+# 6) Conexão de clusters 2D em 3D (formação de cicatrizes)
 ################################
-from scipy.spatial import distance
-from collections import defaultdict
-def min_distance_between_clusters(cluster1, cluster2):
+def min_distance_between_clusters(c1, c2):
+    p1 = np.array(c1.points); p2 = np.array(c2.points)
+    if p1.size == 0 or p2.size == 0:
+        return float('inf')
+    # Distância mínima entre qualquer par de pontos
+    return np.min(distance.cdist(p1, p2, 'euclidean'))
+
+def connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=3.0, max_delta_z=1):
     """
-    Calcula a menor distância entre quaisquer dois pontos de dois clusters 2D.
+    Constrói um grafo onde arestas unem clusters em fatias adjacentes
+    cuja distância (pontos) é menor que um raio dinâmico. Então
+    encontra componentes conexas (clusters 3D) via DFS.
     """
-    points1 = np.array(cluster1.points)
-    points2 = np.array(cluster2.points)
-
-    # Verifica se ambos os clusters têm pontos válidos
-    if points1.size == 0 or points2.size == 0:
-        return float('inf')  # Retorna infinito se algum estiver vazio
-    
-    return np.min(distance.cdist(points1, points2, 'euclidean'))
-
-
-def connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=3.0, slice_thickness=1.0, max_delta_z=1):
     n = len(clusters_2d_list)
-    adj = [[] for _ in range(n)]  # Lista de adjacência do grafo
-
+    adj = [[] for _ in range(n)]
+    # Cria conexões
     for i in range(n):
         for j in range(i+1, n):
-            # Ignora clusters da mesma fatia
-            if clusters_2d_list[i].z == clusters_2d_list[j].z:
+            a, b = clusters_2d_list[i], clusters_2d_list[j]
+            if a.z == b.z or abs(a.z - b.z) > max_delta_z:
                 continue
-
-            # Respeita o limite de diferença em Z
-            if abs(clusters_2d_list[i].z - clusters_2d_list[j].z) > max_delta_z:
-                continue
-
-            d = min_distance_between_clusters(clusters_2d_list[i], clusters_2d_list[j])
-
-            dynamic_radius_3d = max(
-                base_radius_3d, 
-                (len(clusters_2d_list[i].points) + len(clusters_2d_list[j].points)) * 0.05
-            )
-
-            if d < dynamic_radius_3d:
-                adj[i].append(j)
-                adj[j].append(i)
-
-    # Algoritmo de DFS para encontrar componentes conexas
-    visited = [False] * n
-    componente = [-1] * n
-    comp_id = 0
-
-    def dfs(start):
-        stack = [start]
-        visited[start] = True
-        componente[start] = comp_id
+            d = min_distance_between_clusters(a, b)
+            dyn_r = max(base_radius_3d,
+                        (len(a.points) + len(b.points)) * 0.05)
+            if d < dyn_r:
+                adj[i].append(j); adj[j].append(i)
+    # Encontra componentes
+    visited = [False]*n; comp = [-1]*n; cid=0
+    def dfs(u):
+        stack=[u]; visited[u]=True; comp[u]=cid
         while stack:
-            u = stack.pop()
-            for v in adj[u]:
-                if not visited[v]:
-                    visited[v] = True
-                    componente[v] = comp_id
-                    stack.append(v)
-
-    # Executar DFS para encontrar todas as componentes conexas
+            v=stack.pop()
+            for w in adj[v]:
+                if not visited[w]: visited[w]=True; comp[w]=cid; stack.append(w)
     for i in range(n):
-        if not visited[i]:
-            dfs(i)
-            comp_id += 1
-
-    # Montar clusters 3D
+        if not visited[i]: dfs(i); cid+=1
+    # Monta dicionário z->pontos 3D
     clusters_3d = defaultdict(list)
     for i, c2d in enumerate(clusters_2d_list):
-        cid = componente[i]
-        for (x, y) in c2d.points:
-            clusters_3d[cid].append((x, y, c2d.z))
-
+        for x, y in c2d.points:
+            clusters_3d[comp[i]].append((x, y, c2d.z))
     return dict(clusters_3d)
 
 ################################
-# 6) Salvar clusters 3D em .txt
+# 7) Gravação de clusters 3D em .txt
 ################################
 def save_clusters_to_txt(clusters, mat_filename, output_dir="clusters_dbscan"):
     """
-    Para cada cluster, salva em cluster_<id>.txt, escalando (x, y, z) pela resolução do .mat.
+    Carrega metadados do .mat para obter resolução e espessura,
+    então grava cada cluster de pontos 3D dimensionado.
     """
     print(f"Reading file: {mat_filename}")
     data = loadmat(mat_filename)
-    setstruct = data['setstruct']
-
-    slice_thickness = setstruct['SliceThickness'][0][0][0][0]
-    slice_gap       = setstruct['SliceGap'][0][0][0][0]
-    resolution_x    = setstruct['ResolutionX'][0][0][0][0]
-    resolution_y    = setstruct['ResolutionY'][0][0][0][0]
-
-    print("------------------------------------------------------")
-    print("Resolutions:", resolution_x, resolution_y)
-    print("------------------------------------------------------")
-
+    ss = data['setstruct']
+    slice_thickness = ss['SliceThickness'][0][0][0][0]
+    gap = ss['SliceGap'][0][0][0][0]
+    resolution_x = ss['ResolutionX'][0][0][0][0]
+    resolution_y = ss['ResolutionY'][0][0][0][0]
     os.makedirs(output_dir, exist_ok=True)
-
-    for lbl, pts in clusters.items():
-        filename = os.path.join(output_dir, f"cluster_{lbl}.txt")
-        with open(filename, "w") as f:
-            for (x, y, z) in pts:
-                x_scaled = x * resolution_x
-                y_scaled = y * resolution_y
-                z_scaled = z * (slice_thickness + slice_gap)
-                #print(f"Z: {z}, Z_scaled: {z_scaled}")
-                #z_scaled = z * 1
-                f.write(f"{x_scaled} {y_scaled} {z_scaled}\n")
-
-        print(f"Cluster {lbl} saved to: {filename}")
+    for label, pts in clusters.items():
+        fname = os.path.join(output_dir, f"cluster_{label}.txt")
+        with open(fname,'w') as f:
+            for x, y, z in pts:
+                f.write(f"{x*resolution_x} {y*resolution_y} {z*(slice_thickness+gap)}\n")
+        print(f"Cluster {label} saved to: {fname}")
 
 ################################
-# 7) Mapeamento de vértices (coração "suavizado"?)
+# 8) Geração de superfícies (.ply) e STL
 ################################
-def apply_vertex_mapping(fibrosis_points, mapping_file):
+def generate_surfaces_and_stl():
     """
-    Ajusta cada ponto de fibrose para a posição suavizada correspondente,
-    de acordo com o vertex_mapping.txt gerado no C++.
+    Para cada arquivo cluster_<id>.txt:
+      1) chama make_surface.py para gerar .ply
+      2) converte .ply em .stl usando PlyToStl
     """
-    data_map = np.loadtxt(mapping_file)
-    # data_map.shape -> (M, 7)
-
-    orig_coords   = data_map[:, 1:4]  # colunas (origX, origY, origZ)
-    smooth_coords = data_map[:, 4:7]  # colunas (smoothX, smoothY, smoothZ)
-
-    # Cria um KDTree com os pontos originais do coração
-    tree = KDTree(orig_coords)
-
-    corrected = []
-    for p in fibrosis_points:
-        dist, idx = tree.query(p)  # idx do vértice mais próximo
-        # Posição suavizada correspondente
-        new_p = smooth_coords[idx]
-        corrected.append(new_p)
-
-    return np.array(corrected)
-
-
-def plot_clusters_2d_por_fatia(clusters_2d_por_fatia):
-    for z, clusters in sorted(clusters_2d_por_fatia.items()):
-        plt.figure(figsize=(6, 6))
-        for cid, pontos in clusters.items():
-            pts = np.array(pontos)
-            plt.scatter(pts[:, 0], pts[:, 1], label=f"Cluster {cid}")
-        plt.title(f"Fatia Z = {z}")
-        plt.gca().invert_yaxis()  # MRI costuma ter Y invertido
-        plt.legend()
-        plt.xlabel("X")
-        plt.ylabel("Y")
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
-
+    txts = sorted(glob.glob("./clusters_dbscan/cluster_*.txt"))
+    for txt in txts:
+        try:
+            subprocess.run(f"python3 make_surface.py {txt} --cover-both-ends",
+                           shell=True, check=True)
+            print(f"Surface for {txt} generated.")
+        except subprocess.CalledProcessError as e:
+            print(f"Surface error {txt}: {e}")
+        base = os.path.splitext(os.path.basename(txt))[0]
+        ply = f"./output/plyFiles/{base}.ply"
+        stl = f"./output/scarFiles/{base}.stl"
+        if os.path.exists(ply):
+            try:
+                subprocess.run(f"./convertPly2STL/build/PlyToStl {ply} {stl} 1",
+                               shell=True, check=True)
+                print(f"STL created: {stl}")
+            except Exception as e:
+                print(f"STL error {ply}: {e}")
 
 ################################
-# MAIN: Pipeline completo
+# MAIN: execução completa
 ################################
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Erro: Nenhum arquivo .mat foi especificado.")
-        print("Uso: python3 readScar.py <caminho_do_arquivo.mat>")
-        sys.exit(1)
+def main():
+    parser = argparse.ArgumentParser(description="Full scar pipeline")
+    parser.add_argument('matfile', help='Path to .mat file')
+    parser.add_argument('--shiftx', default='endo_shifts_x.txt')
+    parser.add_argument('--shifty', default='endo_shifts_y.txt')
+    args = parser.parse_args()
 
-    mat_filename = sys.argv[1]
+    # 1-3: leitura, agrupamento e plot
+    entries = readScar(args.matfile)
+    fatias = group_by_slice(entries)
+    plot_slices(fatias)
+    # 4: grava fatias alinhadas
+    save_fatias_to_txt(fatias, args.shiftx, args.shifty)
 
-    # 1) Ler ROIs
-    fatias_data, pontos_3d = readScar(mat_filename)
+    # 5-7: clustering 2D to 3D e gravação de clusters
+    clusters_2d_list = compute_centroids_2d(fatias)
+    clusters_3d = connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=0.5)
+    save_clusters_to_txt(clusters_3d, args.matfile)
+    # 8: geração de superfícies e STL
+    generate_surfaces_and_stl()
 
-    print("Chaves de fatias_data:", sorted(fatias_data.keys()))
-    for z_val, rois_dict in fatias_data.items():
-        print(f"Z={z_val}, ROIs={list(rois_dict.keys())}")
-
-    # 2) Salvar fatias em .txt (opcional, para debug)
-    save_fatias_to_txt(fatias_data, "fatias_txt")
-
-    # 4) Calcular baricentros
-    clusters_2d_list = compute_centroids_2d(fatias_data)
-
-    # 5) Conectar em 3D via baricentros
-    clusters_3d = connect_2d_clusters_in_3d(
-        clusters_2d_list, 
-        base_radius_3d=0.5, 
-        slice_thickness=1
-    )
-
-    # 6) Salvar clusters em TXT
-    save_clusters_to_txt(clusters_3d, mat_filename, "clusters_dbscan")
-
-    # 7) Gera superfícies .ply para cada cluster
-    cluster_txt_files = sorted(glob.glob("./clusters_dbscan/cluster_*.txt"))
-    for surface_file in cluster_txt_files:
-        try:
-            surface_command = f"python3 make_surface.py {surface_file} --cover-both-ends"
-            subprocess.run(surface_command, shell=True, check=True)
-            print(f"Superfície gerada para {surface_file}")
-        except subprocess.CalledProcessError as e:
-            print(f"Erro ao gerar superfície para {surface_file}: {e}")
-
-    # 8) Converte cada .ply em .stl
-    for surface_file in cluster_txt_files:
-        cluster_name = os.path.splitext(os.path.basename(surface_file))[0]
-        ply_file = f"./output/plyFiles/{cluster_name}.ply"
-        stl_output = f"./output/scarFiles/{cluster_name}.stl"
-
-        if not os.path.exists(ply_file):
-            print(f"Erro: não existe arquivo PLY gerado para {ply_file}.")
-            continue
-
-        try:
-            ply_to_stl_command = f"./convertPly2STL/build/PlyToStl {ply_file} {stl_output} 1"
-            subprocess.run(ply_to_stl_command, shell=True, check=True)
-            print(f"STL gerado com sucesso: {stl_output}")
-        except subprocess.CalledProcessError as e:
-            print(f"Erro ao converter {ply_file} para {stl_output}: {e}")
+if __name__ == '__main__':
+    main()

@@ -129,13 +129,12 @@ def execute_commands(input_file):
     # Step 6: Execute readScar.py
 
     try:
-        read_scar_command = f"python3 readScar.py {input_file}"
+        read_scar_command = f"python3 readScar.py {input_file} --shiftx endo_shifts_x.txt --shifty endo_shifts_y.txt"
         subprocess.run(read_scar_command, shell=True, check=True)
         print("Scar data processed successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error executing readScar.py: {e}")
         return
-    #exit(0)
 
 
     # Command with os.system
@@ -160,8 +159,9 @@ def execute_commands(input_file):
     os.remove("./endo_shifts_y.txt")
     os.remove("./epi_shifts_x.txt")
     os.remove("./epi_shifts_y.txt")
-    os.remove("./fibrosis_mapped.txt")
-    os.remove("./fibrosis_original.txt")
+   # os.remove("./cluster_dbscan")
+    #os.remove("./fibrosis_mapped.txt")
+    #os.remove("./fibrosis_original.txt")
     
     #shutil.rmtree("./output/plyFiles")
     #shutil.rmtree("./output/scarFiles")
