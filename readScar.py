@@ -161,48 +161,77 @@ def compute_centroids_2d(clusters_2d_por_fatia):
 ################################
 # 6) Conexão de clusters 2D em 3D (formação de cicatrizes)
 ################################
+from collections import defaultdict
+import numpy as np
+from scipy.spatial import distance
+
 def min_distance_between_clusters(c1, c2):
-    p1 = np.array(c1.points); p2 = np.array(c2.points)
+    """
+    c1 e c2 são instâncias de Cluster2D,  
+    cada uma com .points = lista de (x,y) dessa região numa fatia z.
+    """
+    p1 = np.array(c1.points)
+    p2 = np.array(c2.points)
     if p1.size == 0 or p2.size == 0:
         return float('inf')
-    # Distância mínima entre qualquer par de pontos
     return np.min(distance.cdist(p1, p2, 'euclidean'))
+
 
 def connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=3.0, max_delta_z=1):
     """
-    Constrói um grafo onde arestas unem clusters em fatias adjacentes
-    cuja distância (pontos) é menor que um raio dinâmico. Então
-    encontra componentes conexas (clusters 3D) via DFS.
+    Constrói um grafo apenas com arestas que vão de fatia menor → fatia maior,
+    usando um raio dinâmico. Depois encontra componentes conexas via DFS.
     """
-    n = len(clusters_2d_list)
+    # 1) Ordena clusters por slice
+    clusters_sorted = sorted(clusters_2d_list, key=lambda c: c.z)
+    n = len(clusters_sorted)
     adj = [[] for _ in range(n)]
-    # Cria conexões
+
+    # 2) Só conecta se b.z > a.z (nunca volta “para trás”) e |Δz| ≤ max_delta_z
     for i in range(n):
+        a = clusters_sorted[i]
         for j in range(i+1, n):
-            a, b = clusters_2d_list[i], clusters_2d_list[j]
-            if a.z == b.z or abs(a.z - b.z) > max_delta_z:
-                continue
+            b = clusters_sorted[j]
+            dz = b.z - a.z
+            if dz > max_delta_z:  
+                break   # como está ordenado, não adianta testar j maiores
+            # agora dz está em [1..max_delta_z]
             d = min_distance_between_clusters(a, b)
-            dyn_r = max(base_radius_3d,
-                        (len(a.points) + len(b.points)) * 0.05)
+            dyn_r = max(base_radius_3d, (len(a.points) + len(b.points)) * 0.05)
             if d < dyn_r:
-                adj[i].append(j); adj[j].append(i)
-    # Encontra componentes
-    visited = [False]*n; comp = [-1]*n; cid=0
+                adj[i].append(j)
+                # NÃO adicionamos adj[j].append(i) → grafo dirigido, não permite “voltar”
+
+    # 3) Encontrar componentes em grafo dirigido como se fosse não-dirigido,
+    #    mas como só há setas para frente, nunca voltamos para z menor.
+    visited = [False]*n
+    comp = [-1]*n
+    cid = 0
     def dfs(u):
-        stack=[u]; visited[u]=True; comp[u]=cid
+        stack = [u]
+        visited[u] = True
+        comp[u] = cid
         while stack:
-            v=stack.pop()
+            v = stack.pop()
             for w in adj[v]:
-                if not visited[w]: visited[w]=True; comp[w]=cid; stack.append(w)
+                if not visited[w]:
+                    visited[w] = True
+                    comp[w] = cid
+                    stack.append(w)
+
     for i in range(n):
-        if not visited[i]: dfs(i); cid+=1
-    # Monta dicionário z->pontos 3D
+        if not visited[i]:
+            dfs(i)
+            cid += 1
+
+    # 4) Monta saída em (x, y, z) para cada componente
     clusters_3d = defaultdict(list)
-    for i, c2d in enumerate(clusters_2d_list):
+    for idx, c2d in enumerate(clusters_sorted):
         for x, y in c2d.points:
-            clusters_3d[comp[i]].append((x, y, c2d.z))
+            clusters_3d[comp[idx]].append((x, y, c2d.z))
+
     return dict(clusters_3d)
+
 
 ################################
 # 7) Gravação de clusters 3D em .txt
