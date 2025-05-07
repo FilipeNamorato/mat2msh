@@ -183,7 +183,7 @@ def connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=3.0, max_delta_z=
     usando um raio dinâmico. Depois encontra componentes conexas via DFS.
     """
     # 1) Ordena clusters por slice
-    clusters_sorted = sorted(clusters_2d_list, key=lambda c: c.z)
+    clusters_sorted = sorted(clusters_2d_list, key=lambda c: c.z, reverse=True)
     n = len(clusters_sorted)
     adj = [[] for _ in range(n)]
 
