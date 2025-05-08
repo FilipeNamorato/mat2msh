@@ -1,18 +1,10 @@
-# Pipeline de Extração e Processamento de Fibrose (ROI para Cicatriz em 3D)
-# =============================================================================
-# Este script realiza todo o fluxo de trabalho para extrair regiões de interesse (ROIs)
-# de um arquivo .mat de ressonância magnética, aplicar alinhamento, agrupar pontos
-# 2D por fatias, calcular centróides e conectar essas ROIs 2D em estruturas 3D (cicatrizes),
-# além de gerar malhas de superfície e arquivos STL.
-#
-# Etapas principais:
 # 1) Leitura do .mat e extração de ROIs: obtém nome, coordenadas (X,Y) e índice de fatia (Z).
 # 2) Agrupamento por fatia: organiza pontos em um dicionário fatiass -> {z: {roi_name: [pts]}}.
 # 3) Visualização 2D: plota cada fatia mostrando pontos e seus centróides para conferência.
 # 4) Alinhamento e gravação de fatias: aplica deslocamentos (shifts) em X e Y
 #    e grava arquivos .txt para cada fatia com coordenadas alinhadas.
 # 5) Cálculo de centróides 2D: gera objetos com coordenadas médias por ROI em cada fatia.
-# 6) Conexão 2D→3D: monta um grafo de adjacência entre centróides de fatias
+# 6) Conexão 2D->3D: monta um grafo de adjacência entre centróides de fatias
 #    consecutivas e encontra componentes conexas, formando clusters 3D.
 # 7) Gravação de clusters 3D: salva cada cluster em .txt usando resolução e espessura
 #    de fatia para dimensionar corretamente X, Y e Z.

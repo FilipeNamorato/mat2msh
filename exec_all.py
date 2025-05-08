@@ -149,7 +149,16 @@ def execute_commands(input_file):
     #os.system('{} -3 {} -merge {} {} {} -o {}'.format(gmsh, lv_endo, rv_endo, rv_epi, biv_mesh_geo, msh_srf_heart))
     #os.system('{} -3 {} -merge {} -o {}'.format(gmsh, msh_srf_heart, biv_msh_geo, msh_heart))
 
-
+    #try:
+    #    print("========================================================================================")
+    #    print("Start of fibrosis marking in healthy tissue")
+    #    print("========================================================================================")
+    #    create_alg_comand = f"python markFibroseFromStl.py --alg-in ../arquivosTesteAlgSTL/outputTesteAlg.alg --stl-dir ../arquivosTesteAlgSTL/fibrose/ --alg-out mesh_com_fib.alg --tol 0.5 --scale 100"
+    #    subprocess.run(create_alg_comand, shell=True)
+    #except Exception as e:
+    #    print(f"Error create .alg")
+    #    return
+    
     print("========================================================================================")
     print("Finished processing the patient data.")
     print("========================================================================================")
