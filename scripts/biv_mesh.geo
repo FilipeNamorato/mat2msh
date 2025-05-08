@@ -47,14 +47,8 @@ Physical Surface("RV",   20) = {S_RV};
 Physical Surface("EPI",  40) = {S_epi};
 
 
-Merge "/home/filipe/mat2msh/output/scarFiles/cluster_0.stl";
 
-Physical Surface("fib",  50) = {4};
 
 SL_wall = newsl; Surface Loop(SL_wall) = {S_LV, S_RV, S_epi, S_base, 4};
 V_wall  = newv;  Volume(V_wall)       = {SL_wall};
 Physical Volume("WALL",  1)  = {V_wall};
-
-SL_fib = newsl; Surface Loop(SL_fib) = {4};
-V_fib  = newv;  Volume(V_fib)       = {SL_fib};
-Physical Volume("fib",  2)  = {V_fib};
