@@ -174,41 +174,58 @@ def connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=3.0, max_delta_z=
     Constrói um grafo apenas com arestas que vão de fatia menor → fatia maior,
     usando um raio dinâmico. Depois encontra componentes conexas via DFS.
     """
-    # 1) Ordena clusters por slice
-    clusters_sorted = sorted(clusters_2d_list, key=lambda c: c.z, reverse=True)
+    # 1) ordena e monta grafo “normal”
+    clusters_sorted = sorted(clusters_2d_list, key=lambda c: c.z)
     n = len(clusters_sorted)
     adj = [[] for _ in range(n)]
-
-    # 2) Só conecta se b.z > a.z (nunca volta “para trás”) e |Δz| ≤ max_delta_z
-    for i in range(n):
-        a = clusters_sorted[i]
+    for i, a in enumerate(clusters_sorted):
         for j in range(i+1, n):
             b = clusters_sorted[j]
             dz = b.z - a.z
-            if dz > max_delta_z:  
-                break   # como está ordenado, não adianta testar j maiores
-            # agora dz está em [1..max_delta_z]
+            if dz < 1: 
+                continue
+            if dz > max_delta_z:
+                break
             d = min_distance_between_clusters(a, b)
-            dyn_r = max(base_radius_3d, (len(a.points) + len(b.points)) * 0.05)
+            dyn_r = max(base_radius_3d,
+                        (len(a.points) + len(b.points)) * 0.05)
             if d < dyn_r:
                 adj[i].append(j)
-                # NÃO adicionamos adj[j].append(i) → grafo dirigido, não permite “voltar”
 
-    # 3) Encontrar componentes em grafo dirigido como se fosse não-dirigido,
-    #    mas como só há setas para frente, nunca voltamos para z menor.
+    # 2) fallback *com limite duro*
+    from collections import defaultdict
+    clusters_by_z = defaultdict(list)
+    for idx, c in enumerate(clusters_sorted):
+        clusters_by_z[c.z].append(idx)
+
+    max_fallback_dist = base_radius_3d * 1.5
+    for i, a in enumerate(clusters_sorted):
+        if not adj[i]:
+            candidates = clusters_by_z.get(a.z + 1, [])
+            if not candidates:
+                continue
+            # encontra o vizinho mais próximo e sua distância
+            dists = [(min_distance_between_clusters(a, clusters_sorted[j]), j)
+                     for j in candidates]
+            dbest, jmin = min(dists, key=lambda x: x[0])
+            # só força conexão se estiver dentro do limite
+            if dbest <= max_fallback_dist:
+                adj[i].append(jmin)
+
+    # 3) DFS para achar componentes
     visited = [False]*n
-    comp = [-1]*n
+    comp    = [-1]*n
     cid = 0
     def dfs(u):
         stack = [u]
         visited[u] = True
-        comp[u] = cid
+        comp[u]    = cid
         while stack:
             v = stack.pop()
             for w in adj[v]:
                 if not visited[w]:
                     visited[w] = True
-                    comp[w] = cid
+                    comp[w]    = cid
                     stack.append(w)
 
     for i in range(n):
@@ -216,12 +233,12 @@ def connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=3.0, max_delta_z=
             dfs(i)
             cid += 1
 
-    # 4) Monta saída em (x, y, z) para cada componente
+    # 4) monta clusters_3d
+    from collections import defaultdict
     clusters_3d = defaultdict(list)
     for idx, c2d in enumerate(clusters_sorted):
         for x, y in c2d.points:
             clusters_3d[comp[idx]].append((x, y, c2d.z))
-
     return dict(clusters_3d)
 
 
