@@ -39,15 +39,10 @@ S_epi = news; Compound Surface(S_epi) = ss[2];
 LL_base = newll; Line Loop(LL_base) = {L_LV_base, L_RV_base, L_epi_base};
 S_base  = news; Plane Surface(S_base) = {LL_base};
 
-
-
 Physical Surface("BASE", 10) = {S_base};
 Physical Surface("LV",   30) = {S_LV};
 Physical Surface("RV",   20) = {S_RV};
 Physical Surface("EPI",  40) = {S_epi};
-
-
-
 
 SL_wall = newsl; Surface Loop(SL_wall) = {S_LV, S_RV, S_epi, S_base, 4};
 V_wall  = newv;  Volume(V_wall)       = {SL_wall};
