@@ -16,8 +16,6 @@ from collections import namedtuple, defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import loadmat
-from scipy.spatial import distance, KDTree
-from sklearn.cluster import DBSCAN
 
 # Estrutura simples para cada ROI em uma fatia: nome, índice Z e lista de pontos (x,y)
 ROIEntry = namedtuple('ROIEntry', ['name', 'z', 'points'])
@@ -131,167 +129,97 @@ def save_fatias_to_txt(fatias, shifts_x_file, shifts_y_file, output_dir="fatias"
         print(f"Saved slice {z} to {fname}")
 
 ################################
-# 5) Cálculo de centróides por cluster 2D
+ # 5) Salva ROIs separados em .txt
 ################################
-def compute_centroids_2d(clusters_2d_por_fatia):
+def save_rois_extruded_to_txt(fatias, mat_filename, output_dir="rois_extruded"):
     """
-    Gera lista de objetos Cluster2D(z, cluster_id, centroid, points)
-    para uso no agrupamento 3D.
+    Para cada ROI em cada fatia, gera um bloco 3D simples:
+      - Extrude em Z usando slice_thickness + gap
+      - Gera dois planos (base e topo) separados pelo mesmo dz
+      - Salva um arquivo .txt por ROI/fatia contendo as coordenadas X,Y,Z
+
+    fatias:    dict { z: { roi_name: [ (x,y), ... ], ... }, ... }
+    mat_filename: caminho para o .mat original (para ler slice_thickness, gap, resolution)
+    output_dir:    pasta onde os .txt serão gravados
     """
-    from collections import namedtuple
-    Cluster2D = namedtuple('Cluster2D', ['z', 'cluster_id', 'centroid', 'points'])
-    result = []
-    for z, clusters_dict in clusters_2d_por_fatia.items():
-        for cid, pts_2d in clusters_dict.items():
-            arr = np.array(pts_2d)
-            centroid = arr.mean(axis=0)       
-            # impressão do baricentro
-            print(f"[Centroid] ROI '{cid}' na fatia Z={z}: (x={centroid[0]:.2f}, y={centroid[1]:.2f})")
-            result.append(Cluster2D(z, cid, centroid, pts_2d))
-    return result
+    from scipy.io import loadmat
+    import os
 
-################################
-# 6) Conexão de clusters 2D em 3D (formação de cicatrizes)
-################################
-from collections import defaultdict
-import numpy as np
-from scipy.spatial import distance
-
-def min_distance_between_clusters(c1, c2):
-    """
-    c1 e c2 são instâncias de Cluster2D,  
-    cada uma com .points = lista de (x,y) dessa região numa fatia z.
-    """
-    p1 = np.array(c1.points)
-    p2 = np.array(c2.points)
-    if p1.size == 0 or p2.size == 0:
-        return float('inf')
-    return np.min(distance.cdist(p1, p2, 'euclidean'))
-
-
-def connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=3.0, max_delta_z=1):
-    """
-    Constrói um grafo apenas com arestas que vão de fatia menor → fatia maior,
-    usando um raio dinâmico. Depois encontra componentes conexas via DFS.
-    """
-    # 1) ordena e monta grafo “normal”
-    clusters_sorted = sorted(clusters_2d_list, key=lambda c: c.z)
-    n = len(clusters_sorted)
-    adj = [[] for _ in range(n)]
-    for i, a in enumerate(clusters_sorted):
-        for j in range(i+1, n):
-            b = clusters_sorted[j]
-            dz = b.z - a.z
-            if dz < 1: 
-                continue
-            if dz > max_delta_z:
-                break
-            d = min_distance_between_clusters(a, b)
-            dyn_r = max(base_radius_3d,
-                        (len(a.points) + len(b.points)) * 0.05)
-            if d < dyn_r:
-                adj[i].append(j)
-
-    # 2) fallback *com limite duro*
-    from collections import defaultdict
-    clusters_by_z = defaultdict(list)
-    for idx, c in enumerate(clusters_sorted):
-        clusters_by_z[c.z].append(idx)
-
-    max_fallback_dist = base_radius_3d * 1.5
-    for i, a in enumerate(clusters_sorted):
-        if not adj[i]:
-            candidates = clusters_by_z.get(a.z + 1, [])
-            if not candidates:
-                continue
-            # encontra o vizinho mais próximo e sua distância
-            dists = [(min_distance_between_clusters(a, clusters_sorted[j]), j)
-                     for j in candidates]
-            dbest, jmin = min(dists, key=lambda x: x[0])
-            # só força conexão se estiver dentro do limite
-            if dbest <= max_fallback_dist:
-                adj[i].append(jmin)
-
-    # 3) DFS para achar componentes
-    visited = [False]*n
-    comp    = [-1]*n
-    cid = 0
-    def dfs(u):
-        stack = [u]
-        visited[u] = True
-        comp[u]    = cid
-        while stack:
-            v = stack.pop()
-            for w in adj[v]:
-                if not visited[w]:
-                    visited[w] = True
-                    comp[w]    = cid
-                    stack.append(w)
-
-    for i in range(n):
-        if not visited[i]:
-            dfs(i)
-            cid += 1
-
-    # 4) monta clusters_3d
-    from collections import defaultdict
-    clusters_3d = defaultdict(list)
-    for idx, c2d in enumerate(clusters_sorted):
-        for x, y in c2d.points:
-            clusters_3d[comp[idx]].append((x, y, c2d.z))
-    return dict(clusters_3d)
-
-
-################################
-# 7) Gravação de clusters 3D em .txt
-################################
-def save_clusters_to_txt(clusters, mat_filename, output_dir="clusters_dbscan"):
-    """
-    Carrega metadados do .mat para obter resolução e espessura,
-    então grava cada cluster de pontos 3D dimensionado.
-    """
-    print(f"Reading file: {mat_filename}")
+    # 1) Carrega metadados do .mat
     data = loadmat(mat_filename)
     ss = data['setstruct']
-    slice_thickness = ss['SliceThickness'][0][0][0][0]
-    gap = ss['SliceGap'][0][0][0][0]
-    resolution_x = ss['ResolutionX'][0][0][0][0]
-    resolution_y = ss['ResolutionY'][0][0][0][0]
+    slice_thickness = float(ss['SliceThickness'][0][0][0][0])
+    gap             = float(ss['SliceGap'][0][0][0][0])
+    resolution_x    = float(ss['ResolutionX'][0][0][0][0])
+    resolution_y    = float(ss['ResolutionY'][0][0][0][0])
+    dz = slice_thickness + gap
+
+    # 2) Prepara diretório de saída
     os.makedirs(output_dir, exist_ok=True)
-    for label, pts in clusters.items():
-        fname = os.path.join(output_dir, f"cluster_{label}.txt")
-        with open(fname,'w') as f:
-            for x, y, z in pts:
-                f.write(f"{x*resolution_x} {y*resolution_y} {z*(slice_thickness+gap)}\n")
-        print(f"Cluster {label} saved to: {fname}")
+
+    # 3) Para cada fatia e cada ROI, gera o bloco extrudado
+    for z, roi_map in sorted(fatias.items()):
+        for roi_name, points in roi_map.items():
+            # nome do arquivo para este ROI nesta fatia
+            safe_name = roi_name.replace(" ", "_").replace("/", "_")
+            fname = os.path.join(output_dir, f"roi_{safe_name}_z{z}.txt")
+            with open(fname, 'w') as f:
+                z_base = z * dz
+                z_top  = z_base + dz
+                for x, y in points:
+                    x_out = x * resolution_x
+                    y_out = y * resolution_y
+                    # grava camada de base
+                    f.write(f"{x_out:.6f} {y_out:.6f} {z_base:.6f}\n")
+                    # grava camada de topo
+                    f.write(f"{x_out:.6f} {y_out:.6f} {z_top:.6f}\n")
+            print(f"Saved extruded ROI '{roi_name}' (slice {z}) to: {fname}")
+
 
 ################################
-# 8) Geração de superfícies (.ply) e STL
+# 6) Geração de superfícies (.ply) e STL
 ################################
 def generate_surfaces_and_stl():
     """
-    Para cada arquivo cluster_id.txt:
+    Para cada arquivo roi_<nome>_z<z>.txt em rois_extruded/:
       1) chama make_surface.py para gerar .ply
       2) converte .ply em .stl usando PlyToStl
     """
-    txts = sorted(glob.glob("./clusters_dbscan/cluster_*.txt"))
+    # prepara diretórios de saída
+    os.makedirs("./output/plyFiles",  exist_ok=True)
+    os.makedirs("./output/scarFiles", exist_ok=True)
+
+    # encontra todos os ROIs extrudados
+    txts = sorted(glob.glob("./rois_extruded/roi_*.txt"))
     for txt in txts:
-        try:
-            subprocess.run(f"python3 make_surface.py {txt} --cover-both-ends",
-                           shell=True, check=True)
-            print(f"Surface for {txt} generated.")
-        except subprocess.CalledProcessError as e:
-            print(f"Surface error {txt}: {e}")
-        base = os.path.splitext(os.path.basename(txt))[0]
+        base = os.path.splitext(os.path.basename(txt))[0]  # ex: "roi_ROI-1_z11"
         ply = f"./output/plyFiles/{base}.ply"
         stl = f"./output/scarFiles/{base}.stl"
+
+        # 1) gera o PLY — note que NÃO usamos -o
+        try:
+            subprocess.run(
+                f"python3 make_surface.py {txt} --cover-both-ends",
+                shell=True, check=True
+            )
+            print(f"Surface for {txt} generated at {ply}")
+        except subprocess.CalledProcessError as e:
+            print(f"Error generating PLY for {txt}: {e}")
+            continue
+
+        # 2) converte PLY → STL
         if os.path.exists(ply):
             try:
-                subprocess.run(f"./convertPly2STL/build/PlyToStl {ply} {stl} 1",
-                               shell=True, check=True)
+                subprocess.run(
+                    f"./convertPly2STL/build/PlyToStl {ply} {stl} 1",
+                    shell=True, check=True
+                )
                 print(f"STL created: {stl}")
-            except Exception as e:
-                print(f"STL error {ply}: {e}")
+            except subprocess.CalledProcessError as e:
+                print(f"Error converting {ply} to STL: {e}")
+        else:
+            print(f"PLY file not found for {txt}, skipping STL conversion.")
+
 
 ################################
 # MAIN: execução completa
@@ -310,11 +238,10 @@ def main():
     # 4: grava fatias alinhadas
     save_fatias_to_txt(fatias, args.shiftx, args.shifty)
 
-    # 5-7: clustering 2D to 3D e gravação de clusters
-    clusters_2d_list = compute_centroids_2d(fatias)
-    clusters_3d = connect_2d_clusters_in_3d(clusters_2d_list, base_radius_3d=0.5)
-    save_clusters_to_txt(clusters_3d, args.matfile)
-    # 8: geração de superfícies e STL
+    # 5) Nova etapa: extrusão simples de cada ROI
+    save_rois_extruded_to_txt(fatias, args.matfile, output_dir="rois_extruded")
+
+    # 6) Geração de superfícies e STL a partir das extrusões
     generate_surfaces_and_stl()
 
 if __name__ == '__main__':
