@@ -36,24 +36,37 @@ int main(int argc, char *argv[])
     // Guardar a malha original antes de suavizar
     vtkSmartPointer<vtkPolyData> originalMesh = reader->GetOutput();
     originalMesh->Register(nullptr); // garante que não seja desalocado prematuramente
-
-    // Suavização da malha
+    
     vtkSmartPointer<vtkSmoothPolyDataFilter> smoother = vtkSmartPointer<vtkSmoothPolyDataFilter>::New();
-    smoother->SetInputData(originalMesh);
+    // Suavização da malha
+    if (!flagScar){
+        smoother->SetInputData(originalMesh);
+    }
 
     // Define o fator de suavização conforme flagScar
     if(flagScar)
         smoother->SetRelaxationFactor(0.0002);
     else
         smoother->SetRelaxationFactor(0.02);
+    if(!flagScar){
+        smoother->SetNumberOfIterations(200);
+        smoother->BoundarySmoothingOff();
+        smoother->BoundarySmoothingOff();
+    }
+    vtkSmartPointer<vtkPolyData> meshForNormals;
+    
+    if (!flagScar){
+        smoother->Update();
+        meshForNormals = smoother->GetOutput();
+    }else
+        meshForNormals = originalMesh;
 
-    smoother->SetNumberOfIterations(200);
-    smoother->BoundarySmoothingOff();
-    smoother->Update();
-
-    // Gera as normais
-    vtkSmartPointer<vtkPolyDataNormals> normals = vtkSmartPointer<vtkPolyDataNormals>::New();
-    normals->SetInputData(smoother->GetOutput());
+    // Gera as normais a partir da malha adequada
+    vtkSmartPointer<vtkPolyDataNormals> normals =
+        vtkSmartPointer<vtkPolyDataNormals>::New();
+    normals->SetInputData(meshForNormals);
+    normals->FlipNormalsOn();
+    normals->Update();
     normals->FlipNormalsOn();
     normals->Update();
 
