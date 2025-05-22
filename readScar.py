@@ -131,21 +131,13 @@ def save_fatias_to_txt(fatias, shifts_x_file, shifts_y_file, output_dir="fatias"
 ################################
  # 5) Salva ROIs separados em .txt
 ################################
-def save_rois_extruded_to_txt(fatias, mat_filename, output_dir="rois_extruded"):
-    """
-    Para cada ROI em cada fatia, gera um bloco 3D simples:
-      - Extrude em Z usando slice_thickness + gap
-      - Gera dois planos (base e topo) separados pelo mesmo dz
-      - Salva um arquivo .txt por ROI/fatia contendo as coordenadas X,Y,Z
+import numpy as np
+from scipy.spatial import Delaunay
 
-    fatias:    dict { z: { roi_name: [ (x,y), ... ], ... }, ... }
-    mat_filename: caminho para o .mat original (para ler slice_thickness, gap, resolution)
-    output_dir:    pasta onde os .txt serão gravados
-    """
+def save_rois_extruded_to_txt(fatias, mat_filename, output_dir="rois_extruded", num_layers=1):
     from scipy.io import loadmat
     import os
 
-    # 1) Carrega metadados do .mat
     data = loadmat(mat_filename)
     ss = data['setstruct']
     slice_thickness = float(ss['SliceThickness'][0][0][0][0])
@@ -154,28 +146,26 @@ def save_rois_extruded_to_txt(fatias, mat_filename, output_dir="rois_extruded"):
     resolution_y    = float(ss['ResolutionY'][0][0][0][0])
     dz = slice_thickness + gap
 
-    # 2) Prepara diretório de saída
     os.makedirs(output_dir, exist_ok=True)
 
-    # 3) Para cada fatia e cada ROI, gera o bloco extrudado
     for z, roi_map in sorted(fatias.items()):
         for roi_name, points in roi_map.items():
-            # nome do arquivo para este ROI nesta fatia
             safe_name = roi_name.replace(" ", "_").replace("/", "_")
             fname = os.path.join(output_dir, f"roi_{safe_name}_z{z}.txt")
             with open(fname, 'w') as f:
                 z_base = z * dz
                 z_top  = z_base + dz
-                for x, y in points:
-                    x_out = x * resolution_x
-                    y_out = y * resolution_y
-                    # grava camada de base
-                    f.write(f"{x_out:.6f} {y_out:.6f} {z_base:.6f}\n")
-                    # grava camada de topo
-                    f.write(f"{x_out:.6f} {y_out:.6f} {z_top:.6f}\n")
+
+                # Gera N camadas entre z_base e z_top
+                for layer in range(num_layers + 1):
+                    alpha = layer / num_layers #QTD de subfatias
+                    # Interpola entre z_base e z_top
+                    z_interp = z_base * (1 - alpha) + z_top * alpha
+                    for x, y in points:
+                        x_out = x * resolution_x
+                        y_out = y * resolution_y
+                        f.write(f"{x_out:.6f} {y_out:.6f} {z_interp:.6f}\n")
             print(f"Saved extruded ROI '{roi_name}' (slice {z}) to: {fname}")
-
-
 ################################
 # 6) Geração de superfícies (.ply) e STL
 ################################

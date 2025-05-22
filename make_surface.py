@@ -117,55 +117,72 @@ def cover_apex(nodes_renum, tris, patch, principal_axis=0):
 
     return nodes_covered, tris_covered
 
-def cover_both_ends(nodes_renum, tris, patch, principal_axis=0, apex_first=None, apex_last=None):
+def cover_both_ends_centered(nodes, tris, patch, principal_axis=2):
     """
-    Closes both ends by creating two apexes and connecting them with 
-    the first and last ring.
-    If apex_first or apex_last are None, they are computed as the average
-    of the first/last ring, respectively.
+    Fecha ambas as extremidades triangulando radialmente
+    a partir do centróide, ordenando os índices globais para
+    evitar cruzamentos.
+    - `nodes`: (M×3) array dos nós originais
+    - `tris`: (K×3) conectividade entre fatias
+    - patch["width"] = número de pontos por fatia
+    - patch["height"] = número de fatias
+    Retorna (nodes_covered, tris_final)
     """
+
     n_in_strip = patch["width"]
-    n_slices = patch["height"]
+    n_slices   = patch["height"]
 
-    # If apex_first is None, compute from the first ring
-    if apex_first is None:
-        apex1 = np.mean(nodes_renum[:n_in_strip, :], axis=0)
-        apex1[principal_axis] += 0.0
-    else:
-        apex1 = apex_first
+    # calcular índices globais das duas bordas
+    base_idx = np.arange(0, n_in_strip)
+    top_idx  = np.arange((n_slices-1)*n_in_strip,
+                         n_slices*n_in_strip)
 
-    # If apex_last is None, compute from the last ring
-    start_last_ring = (n_slices - 1) * n_in_strip
-    if apex_last is None:
-        apex2 = np.mean(nodes_renum[start_last_ring:start_last_ring + n_in_strip, :], axis=0)
-        apex2[principal_axis] += 0.0
-    else:
-        apex2 = apex_last
+    # extrair suas coordenadas
+    pts_base = nodes[base_idx]
+    pts_top  = nodes[top_idx]
 
-    # Create new node array (+2 apexes)
-    nodes_covered = np.zeros((len(nodes_renum) + 2, 3))
-    nodes_covered[2:, :] = nodes_renum
-    nodes_covered[0, :] = apex1
-    nodes_covered[1, :] = apex2
+    # centroids
+    cent_base = pts_base.mean(axis=0)
+    cent_top  = pts_top.mean(axis=0)
 
-    # We need 2*n_in_strip more triangles
-    tris_covered = np.zeros((len(tris) + 2 * n_in_strip, 3))
-    tris_covered[2 * n_in_strip:, :] = tris + 2
+    # novo array de nós: [cent_base, cent_top, nós_originais]
+    nodes_cov = np.vstack([
+        cent_base[np.newaxis,:],
+        cent_top[np.newaxis,:],
+        nodes
+    ])
 
-    # Connect apex1 with the first ring
-    for i in range(n_in_strip):
-        i0 = i + 2
-        i1 = ((i + 1) % n_in_strip) + 2
-        tris_covered[i, :] = [0, i0, i1]
+    # ajusta todos os índices de tris em +2
+    tris_shift = tris + 2
 
-    # Connect apex2 with the last ring
-    start_last_ring_new = start_last_ring + 2
-    for i in range(n_in_strip):
-        j0 = start_last_ring_new + i
-        j1 = start_last_ring_new + ((i + 1) % n_in_strip)
-        tris_covered[n_in_strip + i, :] = [1, j0, j1]
+    # função helper que devolve fan de triângulos
+    def make_fan(cent_id, ring_idx):
+        # calcular ângulos e ordenar os índices globais do ring
+        rel = nodes[ring_idx] - nodes_cov[cent_id]
+        ang = np.arctan2(rel[:,1], rel[:,0])
+        order = ring_idx[np.argsort(ang)]
+        # gerar triângulos
+        fans = []
+        n = len(order)
+        for i in range(n):
+            a = order[i]   + 2  # +2 pelo deslocamento de nós_cov
+            b = order[(i+1)%n] + 2
+            fans.append([cent_id, a, b])
+        return np.array(fans, dtype=int)
 
-    return nodes_covered, tris_covered
+    # centroid global indices em nodes_cov
+    cent_base_id = 0
+    cent_top_id  = 1
+
+    # gera fans
+    tris_base = make_fan(cent_base_id, base_idx)
+    tris_top  = make_fan(cent_top_id,  top_idx)
+
+    # concatena: base fan + lateral + top fan
+    tris_final = np.vstack([tris_base, tris_shift, tris_top])
+
+    return nodes_cov, tris_final
+
 
 def replicate_single_slice_below(points, slice_thickness, principal_axis=2):
     """
@@ -286,12 +303,8 @@ if __name__ == "__main__":
     apex_last = None
 
     if cover_both:
-        nodes_final, tris_final = cover_both_ends(
-            points, tris, patch,
-            principal_axis=principal_axis,
-            apex_first=apex_first,
-            apex_last=apex_last
-        )
+        nodes_final, tris_final = cover_both_ends_centered(points, tris, patch, principal_axis=principal_axis)
+
     elif user_input["cover_apex"]:
         nodes_final, tris_final = cover_apex(points, tris, patch, principal_axis=principal_axis)
     else:
@@ -337,3 +350,21 @@ if __name__ == "__main__":
         ax.scatter(points[:, 0], points[:, 1], points[:, 2], c="r", label="Input Points")
         plt.legend()
         plt.show()
+def triangulate_ring_to_center(center, ring_points, offset=0):
+    """
+    Ordena os pontos da borda em torno do centro e gera triângulos ligando ao centro.
+    offset é o índice que será somado aos pontos (ex: para encaixar na lista geral)
+    """
+    # Translada pontos para o centro
+    rel_points = ring_points - center
+    angles = np.arctan2(rel_points[:, 1], rel_points[:, 0])
+    order = np.argsort(angles)
+
+    tris = []
+    n = len(ring_points)
+    for i in range(n):
+        i0 = order[i]
+        i1 = order[(i + 1) % n]
+        tris.append([0, i0 + offset, i1 + offset])  # centro é o 0 no sistema local
+
+    return np.array(tris)

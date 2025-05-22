@@ -4,6 +4,13 @@
 #include <vtkPolyDataNormals.h>
 #include <vtkTriangleFilter.h>
 #include <vtkSTLWriter.h>
+#include <vtkCleanPolyData.h>
+
+
+// só quando for scar
+#include <vtkDelaunay3D.h>
+#include <vtkUnstructuredGrid.h>
+#include <vtkXMLUnstructuredGridWriter.h>
 
 #include <iostream>
 #include <fstream>
@@ -14,7 +21,6 @@ int main(int argc, char *argv[])
 {
     // 1) input.ply
     // 2) output.stl
-    // 3) 0 ou 1 para indicar se é fibrose (flagScar)
     // Ex.: ./program input.ply output.stl 0
     if (argc < 4)
     {
@@ -75,44 +81,65 @@ int main(int argc, char *argv[])
     triangleFilter->SetInputData(normals->GetOutput());
     triangleFilter->Update();
 
-    // Malha final suavizada
-    vtkSmartPointer<vtkPolyData> finalMesh = triangleFilter->GetOutput();
+   // Limpa duplicatas
+    vtkSmartPointer<vtkCleanPolyData> cleaner =
+        vtkSmartPointer<vtkCleanPolyData>::New();
+    cleaner->SetInputData(triangleFilter->GetOutput());
+    cleaner->Update();
 
-    // --- Geração do mapeamento de vértices ---
-    // Verificamos se o smoothing não mudou o número de vértices
+    // Malha final de superfície
+    vtkSmartPointer<vtkPolyData> finalMesh = cleaner->GetOutput();
+
+    // (Opcional) mapeamento de vértices
     if (originalMesh->GetNumberOfPoints() == finalMesh->GetNumberOfPoints())
     {
         std::ofstream mapFile("vertex_mapping.txt");
-        if (!mapFile.is_open())
+        if (mapFile.is_open())
         {
-            std::cerr << "Could not open 'vertex_mapping.txt' for writing.\n";
-            return EXIT_FAILURE;
+            vtkIdType N = originalMesh->GetNumberOfPoints();
+            for (vtkIdType i = 0; i < N; ++i)
+            {
+                double o[3], s[3];
+                originalMesh->GetPoint(i, o);
+                finalMesh   ->GetPoint(i, s);
+                mapFile << i << " "
+                        << o[0] << " " << o[1] << " " << o[2] << " "
+                        << s[0] << " " << s[1] << " " << s[2] << "\n";
+            }
         }
-
-        vtkIdType numPoints = originalMesh->GetNumberOfPoints();
-        for (vtkIdType i = 0; i < numPoints; i++)
+        else
         {
-            double origPt[3];
-            double smoothPt[3];
-
-            // Pega ponto original
-            originalMesh->GetPoint(i, origPt);
-            // Pega ponto suavizado (mesmo índice i)
-            finalMesh->GetPoint(i, smoothPt);
-
-            // Formato: i origX origY origZ smoothX smoothY smoothZ
-            mapFile << i << " "
-                    << origPt[0] << " " << origPt[1] << " " << origPt[2] << " "
-                    << smoothPt[0] << " " << smoothPt[1] << " " << smoothPt[2]
-                    << "\n";
+            std::cerr << "Could not open 'vertex_mapping.txt'\n";
         }
-        mapFile.close();
-        // std::cout << "Vertex mapping saved to vertex_mapping.txt" << std::endl;
     }
     else
     {
-        std::cerr << "[WARNING] Different number of points after smoothing. "
-                  << "No vertex mapping generated.\n";
+        std::cerr << "[WARNING] Número de pontos mudou, sem mapeamento.\n";
+    }
+
+    if (flagScar)
+    {
+        // gera volume tetraédrico
+        vtkSmartPointer<vtkDelaunay3D> delaunay =
+            vtkSmartPointer<vtkDelaunay3D>::New();
+        delaunay->SetInputData(finalMesh);
+        delaunay->SetTolerance(0.0);
+        delaunay->SetAlpha(0.0);
+        delaunay->Update();
+
+        vtkUnstructuredGrid* volumeMesh = delaunay->GetOutput();
+
+        // monta nome do VTU com mesmo basename do STL
+        std::string vtuName = outputFileName;
+        size_t dot = vtuName.find_last_of('.');
+        if (dot != std::string::npos)
+            vtuName = vtuName.substr(0, dot) + ".vtu";
+
+        vtkSmartPointer<vtkXMLUnstructuredGridWriter> vtuWriter =
+            vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
+        vtuWriter->SetFileName(vtuName.c_str());
+        vtuWriter->SetInputData(volumeMesh);
+        vtuWriter->Write();
     }
 
     // Escreve a malha final em formato STL
