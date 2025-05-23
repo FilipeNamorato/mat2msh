@@ -42,12 +42,7 @@ def adjust_resolution(setstruct, structures):
                 raise ValueError(f"Unexpected dimensions for {x_attr}: {x_coords.ndim}")
 
             # Check if at least one point is valid for each slice
-            slice_validity = valid_mask.any(axis=0)
-            
-            for s_idx, is_valid in enumerate(slice_validity):
-                if is_valid:
-                    print(f"{name}: Fatia {s_idx} marcada como válida (existe algum ponto != NaN).")
-                    
+            slice_validity = valid_mask.any(axis=0)            
 
             # Combine masks: A slice is valid if at least one structure has valid points
             if valid_slices_mask is None:

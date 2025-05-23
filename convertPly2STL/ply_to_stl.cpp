@@ -112,10 +112,6 @@ int main(int argc, char *argv[])
             std::cerr << "Could not open 'vertex_mapping.txt'\n";
         }
     }
-    else
-    {
-        std::cerr << "[WARNING] Número de pontos mudou, sem mapeamento.\n";
-    }
 
 
     // Escreve a malha final em formato STL

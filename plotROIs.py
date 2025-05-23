@@ -39,25 +39,23 @@ def readScar(mat_filename, plot_3d=True):
                 z_val = float(z_values[i][0][0])
 
                 if len(x_arr) == 0 or len(y_arr) == 0:
-                    print(f"Erro: Fatia {z_val} do ROI {idx+1} está vazia.")
+                    print(f"Error: Slice {z_val} from ROI {idx+1} is empty.")
                     continue
 
                 if z_val not in fatias:
                     fatias[z_val] = []
                 
-                # Adiciona os pontos (x, y) nesta fatia
+                # Add points (x, y) to this slice
                 fatias[z_val].extend(zip(x_arr, y_arr))
 
-                print(f"Adicionado ROI {idx+1}, Fatia {z_val}, "
-                      f"Pontos={len(x_arr)}")
+                print(f"Added ROI {idx+1}, Slice {z_val}, Points={len(x_arr)}")
 
         except Exception as e:
-            print(f"Erro ao processar ROI {idx+1}: {e}")
+            print(f"Error while processing ROI {idx+1}: {e}")
 
     # Cria um array unificado para debug
     pontos_3d = np.array([[x, y, z] for z, coords in fatias.items() for (x, y) in coords])
 
-    # Se o usuário pediu, exibe os ROIs em 3D
     if plot_3d:
         plot_rois_3d(pontos_3d)
 

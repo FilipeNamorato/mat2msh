@@ -47,10 +47,10 @@ def mark_fibrosis(path_msh, stl_dir, output_path="saida_com_fibrose.msh", plot_c
                 pass
             time.sleep(0.1)
         else:
-            print(f"[ERRO] STL {fname} não está pronto ou está malformado. Pulando.")
+            print(f"[ERROR] STL {fname} is not ready or is malformed. Skipping.")
             continue
 
-        print(f"Processando {fname}...")
+        print(f"Processing {fname}...")
         reader = vtk.vtkSTLReader()
         reader.SetFileName(full_path)
         reader.Update()
@@ -93,11 +93,11 @@ def mark_fibrosis(path_msh, stl_dir, output_path="saida_com_fibrose.msh", plot_c
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Marca fibrose na malha usando arquivos STL.")
-    parser.add_argument("--msh", required=True, help="Caminho para o arquivo .msh original")
-    parser.add_argument("--stl_dir", required=True, help="Diretório contendo os arquivos STL")
-    parser.add_argument("--output_path", required=True, help="Caminho para salvar o .msh com fibrose")
-    parser.add_argument("--plot", action="store_true", help="Se definido, plota os centróides")
+    parser = argparse.ArgumentParser(description="Marks fibrosis in the mesh using STL files.")
+    parser.add_argument("--msh", required=True, help="Path to the original .msh file")
+    parser.add_argument("--stl_dir", required=True, help="Directory containing the STL files")
+    parser.add_argument("--output_path", required=True, help="Path to save the .msh file with fibrosis")
+    parser.add_argument("--plot", action="store_true", help="If set, plots the centroids")
 
     args = parser.parse_args()
 

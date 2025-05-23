@@ -150,8 +150,10 @@ def execute_commands(input_file):
         print(f"Error generating model: {e}")
         return
     
-
-            # Step 7: Execute mark_fibrosis_script.py
+    print("===================================================")
+    print("Marking the mesh with the scar files...")
+    print("===================================================")
+    # Step 7: Execute mark_fibrosis_script.py
     try:
         msh_path = f"{msh_srf}/{patient_id}.msh"
         output_marked = f"{msh_srf}/{patient_id}_marked.msh"
@@ -162,7 +164,10 @@ def execute_commands(input_file):
             f"--output_path {output_marked}"
         )
         subprocess.run(mark_scar_command, shell=True, check=True)
+        print("===================================================")
         print("Fibrosis successfully marked in the mesh.")
+        print("===================================================")
+
     except subprocess.CalledProcessError as e:
         print(f"Error executing mark_fibrosis_script.py: {e}")
         return
@@ -180,8 +185,8 @@ def execute_commands(input_file):
     #os.remove("./fibrosis_mapped.txt")
     #os.remove("./fibrosis_original.txt")
     
-    #shutil.rmtree("./output/plyFiles")
-    #shutil.rmtree("./output/scarFiles")
+    shutil.rmtree("./output/plyFiles")
+    shutil.rmtree("./output/scarFiles")
 
 # Main entry point
 if __name__ == "__main__":

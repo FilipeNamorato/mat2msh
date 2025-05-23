@@ -4,9 +4,6 @@ from collections import namedtuple, defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import loadmat
-import vtk
-import meshio
-import time
 
 # Estrutura simples para cada ROI em uma fatia: nome, índice Z e lista de pontos (x,y)
 ROIEntry = namedtuple('ROIEntry', ['name', 'z', 'points'])
