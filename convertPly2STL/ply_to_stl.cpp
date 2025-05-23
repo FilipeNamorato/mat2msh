@@ -117,30 +117,6 @@ int main(int argc, char *argv[])
         std::cerr << "[WARNING] Número de pontos mudou, sem mapeamento.\n";
     }
 
-    if (flagScar)
-    {
-        // gera volume tetraédrico
-        vtkSmartPointer<vtkDelaunay3D> delaunay =
-            vtkSmartPointer<vtkDelaunay3D>::New();
-        delaunay->SetInputData(finalMesh);
-        delaunay->SetTolerance(0.0);
-        delaunay->SetAlpha(0.0);
-        delaunay->Update();
-
-        vtkUnstructuredGrid* volumeMesh = delaunay->GetOutput();
-
-        // monta nome do VTU com mesmo basename do STL
-        std::string vtuName = outputFileName;
-        size_t dot = vtuName.find_last_of('.');
-        if (dot != std::string::npos)
-            vtuName = vtuName.substr(0, dot) + ".vtu";
-
-        vtkSmartPointer<vtkXMLUnstructuredGridWriter> vtuWriter =
-            vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
-        vtuWriter->SetFileName(vtuName.c_str());
-        vtuWriter->SetInputData(volumeMesh);
-        vtuWriter->Write();
-    }
 
     // Escreve a malha final em formato STL
     vtkSmartPointer<vtkSTLWriter> writer = vtkSmartPointer<vtkSTLWriter>::New();

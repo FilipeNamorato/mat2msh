@@ -127,11 +127,15 @@ def execute_commands(input_file):
 
 
     # Step 6: Execute readScar.py
-
     try:
-        read_scar_command = f"python3 readScar.py {input_file} --shiftx endo_shifts_x.txt --shifty endo_shifts_y.txt"
+        msh_path = f"{msh_srf}/{patient_id}.msh"
+        output_marked = f"{msh_srf}/{patient_id}_marked.msh"
+        read_scar_command = (
+            f"python3 readScar.py {input_file} "
+            f"--shiftx endo_shifts_x.txt --shifty endo_shifts_y.txt"
+        )
         subprocess.run(read_scar_command, shell=True, check=True)
-        print("Scar data processed successfully.")
+        print("Scar pipeline executed and fibrosis marked successfully.")
     except subprocess.CalledProcessError as e:
         print(f"Error executing readScar.py: {e}")
         return
@@ -145,20 +149,24 @@ def execute_commands(input_file):
     except Exception as e:
         print(f"Error generating model: {e}")
         return
-
-    #os.system('{} -3 {} -merge {} {} {} -o {}'.format(gmsh, lv_endo, rv_endo, rv_epi, biv_mesh_geo, msh_srf_heart))
-    #os.system('{} -3 {} -merge {} -o {}'.format(gmsh, msh_srf_heart, biv_msh_geo, msh_heart))
-
-    #try:
-    #    print("========================================================================================")
-    #    print("Start of fibrosis marking in healthy tissue")
-    #    print("========================================================================================")
-    #    create_alg_comand = f"python markFibroseFromStl.py --alg-in ../arquivosTesteAlgSTL/outputTesteAlg.alg --stl-dir ../arquivosTesteAlgSTL/fibrose/ --alg-out mesh_com_fib.alg --tol 0.5 --scale 100"
-    #    subprocess.run(create_alg_comand, shell=True)
-    #except Exception as e:
-    #    print(f"Error create .alg")
-    #    return
     
+
+            # Step 7: Execute mark_fibrosis_script.py
+    try:
+        msh_path = f"{msh_srf}/{patient_id}.msh"
+        output_marked = f"{msh_srf}/{patient_id}_marked.msh"
+        mark_scar_command = (
+            f"python3 markFibroseFromMsh.py "
+            f"--msh {msh_path} "
+            f"--stl_dir {scar_srf} "
+            f"--output_path {output_marked}"
+        )
+        subprocess.run(mark_scar_command, shell=True, check=True)
+        print("Fibrosis successfully marked in the mesh.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing mark_fibrosis_script.py: {e}")
+        return
+
     print("========================================================================================")
     print("Finished processing the patient data.")
     print("========================================================================================")

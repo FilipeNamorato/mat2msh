@@ -1,21 +1,12 @@
-# 1) Leitura do .mat e extração de ROIs: obtém nome, coordenadas (X,Y) e índice de fatia (Z).
-# 2) Agrupamento por fatia: organiza pontos em um dicionário fatiass -> {z: {roi_name: [pts]}}.
-# 3) Visualização 2D: plota cada fatia mostrando pontos e seus centróides para conferência.
-# 4) Alinhamento e gravação de fatias: aplica deslocamentos (shifts) em X e Y
-#    e grava arquivos .txt para cada fatia com coordenadas alinhadas.
-# 5) Cálculo de centróides 2D: gera objetos com coordenadas médias por ROI em cada fatia.
-# 6) Conexão 2D->3D: monta um grafo de adjacência entre centróides de fatias
-#    consecutivas e encontra componentes conexas, formando clusters 3D.
-# 7) Gravação de clusters 3D: salva cada cluster em .txt usando resolução e espessura
-#    de fatia para dimensionar corretamente X, Y e Z.
-# 8) Geração de superfícies e STL: cria malhas .ply e converte para STL para modelagem.
-# =============================================================================
 import sys, os, glob, subprocess, argparse
 from collections import namedtuple, defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import loadmat
+import vtk
+import meshio
+import time
 
 # Estrutura simples para cada ROI em uma fatia: nome, índice Z e lista de pontos (x,y)
 ROIEntry = namedtuple('ROIEntry', ['name', 'z', 'points'])
@@ -131,12 +122,8 @@ def save_fatias_to_txt(fatias, shifts_x_file, shifts_y_file, output_dir="fatias"
 ################################
  # 5) Salva ROIs separados em .txt
 ################################
-import numpy as np
-from scipy.spatial import Delaunay
 
 def save_rois_extruded_to_txt(fatias, mat_filename, output_dir="rois_extruded", num_layers=1):
-    from scipy.io import loadmat
-    import os
 
     data = loadmat(mat_filename)
     ss = data['setstruct']
@@ -166,6 +153,7 @@ def save_rois_extruded_to_txt(fatias, mat_filename, output_dir="rois_extruded", 
                         y_out = y * resolution_y
                         f.write(f"{x_out:.6f} {y_out:.6f} {z_interp:.6f}\n")
             print(f"Saved extruded ROI '{roi_name}' (slice {z}) to: {fname}")
+
 ################################
 # 6) Geração de superfícies (.ply) e STL
 ################################
@@ -186,7 +174,7 @@ def generate_surfaces_and_stl():
         ply = f"./output/plyFiles/{base}.ply"
         stl = f"./output/scarFiles/{base}.stl"
 
-        # 1) gera o PLY — note que NÃO usamos -o
+        # 1) gera o PLY
         try:
             subprocess.run(
                 f"python3 make_surface.py {txt} --cover-both-ends",
