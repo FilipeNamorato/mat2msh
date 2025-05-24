@@ -58,11 +58,11 @@ def adjust_resolution(setstruct, structures):
         print("No valid slices found.")
         return setstruct, None
 
-    print("--------------------------------------------------")
-    print("Debug: Verificação das fatias válidas")
-    print(f"Tamanho total esperado das fatias: {num_slices}")
-    print(f"Máscara de fatias válidas (1 = válido, 0 = NaN): {valid_slices_mask.astype(int)}")
-    print("--------------------------------------------------")
+    #print("--------------------------------------------------")
+    #print("Debug: Verificação das fatias válidas")
+    #print(f"Tamanho total esperado das fatias: {num_slices}")
+    #print(f"Máscara de fatias válidas (1 = válido, 0 = NaN): {valid_slices_mask.astype(int)}")
+    #print("--------------------------------------------------")
 
 
     valid_indices = (np.where(valid_slices_mask)[0])
@@ -144,7 +144,7 @@ def save_structures_to_txt(mat_filename, output_dir):
                 #Estou achando que está havendo uma incompatilidade entre
                 #os dados extraídos do .mat e a forma como o numpy está lidando com eles
             z_base = (valid_indices + 1) * (slice_thickness + slice_gap)
-            print(valid_indices) 
+            #print(valid_indices) 
             z_values = np.tile(z_base, (num_points, 1))
 
             # Output file name

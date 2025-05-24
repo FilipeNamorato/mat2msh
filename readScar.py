@@ -212,10 +212,14 @@ def main():
     plot_slices(fatias)
     # 4: grava fatias alinhadas
     save_fatias_to_txt(fatias, args.shiftx, args.shifty)
-
+    print("===================================================")
+    print("Construction extruded and saved slices scar files")
+    print("===================================================")
     # 5) Nova etapa: extrusão simples de cada ROI
     save_rois_extruded_to_txt(fatias, args.matfile, output_dir="rois_extruded")
-
+    print("===================================================")
+    print("Generate surfaces and STL files")
+    print("===================================================")
     # 6) Geração de superfícies e STL a partir das extrusões
     generate_surfaces_and_stl()
 

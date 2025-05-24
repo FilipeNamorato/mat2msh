@@ -8,7 +8,9 @@ import shutil
 def execute_commands(input_file):
     # Fixed patient ID for processing
     patient_id = "Patient_1" #ALTERAR PARA VARIAR CONFORME NOME ARQUIVO
-
+    print("========================================================================================")
+    print("Starting the pipeline for patient data processing.")
+    print("========================================================================================")
     # Create the output folder with the current date
     date_str = datetime.now().strftime("%Y%m%d")
     output_dir = f"output/{date_str}/{patient_id}"
@@ -29,7 +31,6 @@ def execute_commands(input_file):
     if os.path.exists(scar_srf):
         shutil.rmtree(scar_srf)
     os.makedirs(scar_srf, exist_ok=True)
-    print("========================================================================================")
     # Step 1: Process the .mat file
     print(f"Processing the file: {input_file}")
 
@@ -49,7 +50,7 @@ def execute_commands(input_file):
         # Handle any other unforeseen errors
         print(f"Unexpected error while processing {input_file}: {e}")
         return
-    print("========================================================================================")
+    print("===================================================")
     # Step 2: Execute saveMsh.py
     try:
         save_msh_command = "python3 saveMsh.py"
@@ -57,7 +58,7 @@ def execute_commands(input_file):
     except subprocess.CalledProcessError as e:
         print(f"Error executing saveMsh.py: {e}")
         return
-    print("========================================================================================")
+    print("===================================================")
 
     # Step 3: Generate surfaces
     surface_files = [
@@ -74,7 +75,7 @@ def execute_commands(input_file):
         except subprocess.CalledProcessError as e:
             print(f"Error generating surface for {surface_file}: {e}")
             return
-    print("========================================================================================")
+    print("===================================================")
 
     # Step 4: Convert PLY files to STL
     ply_files = [
@@ -108,7 +109,7 @@ def execute_commands(input_file):
     print(f"STL files generated successfully in: {stl_srf}")
     print("Ending the script before executing Gmsh and other steps.")
 
-    print("========================================================================================")
+    print("===================================================")
     # Step 5: Generate the `.msh` file using Gmsh
 
     # Gmsh and generation scripts
@@ -125,7 +126,9 @@ def execute_commands(input_file):
     msh = f"{msh_srf}/{patient_id}.msh"
     out_log = f"{msh_srf}/{patient_id}.log"
 
-
+    
+    print("Extracting scars from the .mat file...")
+    print("===================================================")
     # Step 6: Execute readScar.py
     try:
         msh_path = f"{msh_srf}/{patient_id}.msh"
@@ -140,7 +143,9 @@ def execute_commands(input_file):
         print(f"Error executing readScar.py: {e}")
         return
 
-
+    print("===================================================")
+    print("Generating the mesh with GMSH...")
+    print("===================================================")
     # Command with os.system
     try:
         os.system('{} -3 {} -merge {} {} {} -o {} 2>&1 {}'.format(
@@ -187,6 +192,7 @@ def execute_commands(input_file):
     
     shutil.rmtree("./output/plyFiles")
     shutil.rmtree("./output/scarFiles")
+    shutil.rmtree("./rois_extruded")
 
 # Main entry point
 if __name__ == "__main__":
