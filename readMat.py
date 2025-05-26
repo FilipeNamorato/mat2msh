@@ -19,16 +19,16 @@ def read_mat(mat_filename, RVyes=False):
         return coords
 
     # Get values of SliceThickness and SliceGap
-    slice_thickness = getattr(setstruct, 'SliceThickness', None)
-    slice_gap = getattr(setstruct, 'SliceGap', 0.0)  # Default to 0 if not present
-    print(slice_gap)
+    slice_thickness = getattr(setstruct, 'SliceThickness', 8)
+    slice_gap = getattr(setstruct, 'SliceGap', 0.64)  # Default if not present
+    print(f"slice_gap = {slice_gap}")
 
     if slice_thickness is None:
         raise ValueError("Field 'SliceThickness' not found in the .mat file")
 
     # Calculate Z based on SliceThickness and SliceGap
     def calculate_z(num_slices, slice_thickness, slice_gap, num_points_per_slice):
-        z_values = np.arange(num_slices) * slice_thickness
+        z_values = np.arange(num_slices) * (slice_thickness)
         return np.tile(z_values, (num_points_per_slice, 1))
 
     # Extract coordinates of structures
@@ -45,7 +45,10 @@ def read_mat(mat_filename, RVyes=False):
     EpiZ = calculate_z(num_slices, slice_thickness, slice_gap, epiX.shape[0])
 
     def calculate_barycenters(endoX, endoY, epiX, epiY):
-        """Calculate barycenters for each slice, considering NaNs in EndoX."""
+        """
+        Calculate barycenters for each slice, 
+        considering NaNs in EndoX.
+        """
         barycenters = np.zeros((epiX.shape[2], 2))
         for s in range(epiX.shape[2]):
             if not np.isnan(endoX[0, 0, s]):  # If EndoX has no NaN for this slice
@@ -58,10 +61,15 @@ def read_mat(mat_filename, RVyes=False):
 
     def align_slices(X, Y, barycenters, z_values):
         """Align slices based on linear regression of barycenters."""
-        num_slices = X.shape[2]
-        z = z_values.reshape(-1, 1)
+        num_slices_here = X.shape[2]
+        print(f"Aligning {num_slices_here} slices...")
+
+        z = z_values[0, :].reshape(-1, 1)  # shape (num_slices, 1)
 
         valid_idx = ~np.isnan(barycenters[:, 0])
+        shifts_x = np.zeros(num_slices_here)
+        shifts_y = np.zeros(num_slices_here)
+
         if valid_idx.sum() > 1:
             modelX = LinearRegression().fit(z[valid_idx], barycenters[valid_idx, 0])
             modelY = LinearRegression().fit(z[valid_idx], barycenters[valid_idx, 1])
@@ -69,19 +77,27 @@ def read_mat(mat_filename, RVyes=False):
             estX = modelX.predict(z)
             estY = modelY.predict(z)
 
-            for s in range(num_slices):
+            for s in range(num_slices_here):
                 if not np.isnan(X[:, 0, s]).all():
                     shiftX = barycenters[s, 0] - estX[s]
                     shiftY = barycenters[s, 1] - estY[s]
+                    
+                    shifts_x[s] = shiftX
+                    shifts_y[s] = shiftY
+
                     X[:, :, s] -= shiftX
                     Y[:, :, s] -= shiftY
 
-        return X, Y
+        return X, Y, shifts_x, shifts_y
 
     # Calculate barycenters and align Endo and Epi
     endo_barycenters = calculate_barycenters(endoX, endoY, epiX, epiY)
-    endoX, endoY = align_slices(endoX, endoY, endo_barycenters, EndoZ[0])
-    epiX, epiY = align_slices(epiX, epiY, endo_barycenters, EpiZ[0])
+    endoX, endoY, endo_shifts_x, endo_shifts_y = align_slices(
+        endoX, endoY, endo_barycenters, EndoZ
+    )
+    epiX, epiY, epi_shifts_x, epi_shifts_y = align_slices(
+        epiX, epiY, endo_barycenters, EpiZ
+    )
 
     if RVyes:
         # Align RV
@@ -95,25 +111,37 @@ def read_mat(mat_filename, RVyes=False):
 
         rv_barycenters = calculate_barycenters(RVEndoX, RVEndoY, RVEpiX, RVEpiY)
 
-        # Align RV Endo and RV Epi slices
-        RVEndoX, RVEndoY = align_slices(RVEndoX, RVEndoY, rv_barycenters, RVEndoZ[0])
-        RVEpiX, RVEpiY = align_slices(RVEpiX, RVEpiY, rv_barycenters, RVEpiZ[0])
+        # Align RV Endo
+        RVEndoX, RVEndoY, rv_endo_shifts_x, rv_endo_shifts_y = align_slices(
+            RVEndoX, RVEndoY, rv_barycenters, RVEndoZ
+        )
+        # Align RV Epi
+        RVEpiX, RVEpiY, rv_epi_shifts_x, rv_epi_shifts_y = align_slices(
+            RVEpiX, RVEpiY, rv_barycenters, RVEpiZ
+        )
 
         # Update setstruct with aligned RV coordinates
         setstruct.RVEndoX = RVEndoX
         setstruct.RVEndoY = RVEndoY
-        setstruct.RVEpiX = RVEpiX
-        setstruct.RVEpiY = RVEpiY
+        setstruct.RVEpiX  = RVEpiX
+        setstruct.RVEpiY  = RVEpiY
 
     print("Alignment complete.")
 
-    # Update the original structure with aligned coordinates
     setstruct.EndoX = endoX
     setstruct.EndoY = endoY
     setstruct.EpiX = epiX
     setstruct.EpiY = epiY
 
+    np.savetxt("endo_shifts_x.txt", endo_shifts_x, fmt="%.6f")
+    np.savetxt("endo_shifts_y.txt", endo_shifts_y, fmt="%.6f")
+    np.savetxt("epi_shifts_x.txt",  epi_shifts_x,  fmt="%.6f")
+    np.savetxt("epi_shifts_y.txt",  epi_shifts_y,  fmt="%.6f")
+
+    print("Displacement shifts saved as .txt files.")
+
     # Save the processed file
     output_filename = 'aligned_patient.mat'
     savemat(output_filename, {'setstruct': setstruct}, do_compression=True)
     print(f"Aligned file saved as: {output_filename}")
+    return endo_shifts_x, endo_shifts_y, epi_shifts_x, epi_shifts_y

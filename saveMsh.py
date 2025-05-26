@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from scipy.io import loadmat
 
-def adjust_resolution(setstruct, structures, slice_thickness, slice_gap):
+def adjust_resolution(setstruct, structures):
     """
     Adjusts the coordinates of the structures to account for spatial resolution (ResolutionX, ResolutionY).
     Calculates Z values based on SliceThickness and SliceGap.
@@ -11,8 +11,6 @@ def adjust_resolution(setstruct, structures, slice_thickness, slice_gap):
     Parameters:
     - setstruct: Object containing the structures and resolution attributes.
     - structures: Dictionary with structures to be adjusted.
-    - slice_thickness: Thickness between slices.
-    - slice_gap: Gap between slices.
 
     Returns:
     - Adjusted setstruct with new scaled coordinates.
@@ -26,20 +24,25 @@ def adjust_resolution(setstruct, structures, slice_thickness, slice_gap):
     valid_slices_mask = None
     for name, (x_attr, y_attr) in structures.items():
         try:
+            # Get the x and y coordinates for the current structure
             x_coords = getattr(setstruct, x_attr)
             y_coords = getattr(setstruct, y_attr)
 
             if x_coords.ndim == 3:
+                # If the coordinates are 3-dimensional, get the number of points and slices
                 num_points, _, num_slices = x_coords.shape
+                # Create a mask to identify valid points (not NaN) in the slices
                 valid_mask = ~np.isnan(x_coords[:, 0, :]) | ~np.isnan(y_coords[:, 0, :])
             elif x_coords.ndim == 2:
+                # If the coordinates are 2-dimensional, get the number of points and slices
                 num_points, num_slices = x_coords.shape
+                # Create a mask to identify valid points (not NaN) in the slices
                 valid_mask = ~np.isnan(x_coords) | ~np.isnan(y_coords)
             else:
                 raise ValueError(f"Unexpected dimensions for {x_attr}: {x_coords.ndim}")
 
             # Check if at least one point is valid for each slice
-            slice_validity = valid_mask.any(axis=0)
+            slice_validity = valid_mask.any(axis=0)            
 
             # Combine masks: A slice is valid if at least one structure has valid points
             if valid_slices_mask is None:
@@ -55,7 +58,14 @@ def adjust_resolution(setstruct, structures, slice_thickness, slice_gap):
         print("No valid slices found.")
         return setstruct, None
 
-    valid_indices = np.where(valid_slices_mask)[0]
+    #print("--------------------------------------------------")
+    #print("Debug: Verificação das fatias válidas")
+    #print(f"Tamanho total esperado das fatias: {num_slices}")
+    #print(f"Máscara de fatias válidas (1 = válido, 0 = NaN): {valid_slices_mask.astype(int)}")
+    #print("--------------------------------------------------")
+
+
+    valid_indices = (np.where(valid_slices_mask)[0])
 
     # Adjust coordinates for valid slices
     for name, (x_attr, y_attr) in structures.items():
@@ -99,7 +109,7 @@ def save_structures_to_txt(mat_filename, output_dir):
         data = loadmat(mat_filename, struct_as_record=False, squeeze_me=True)
         setstruct = data['setstruct']
         slice_thickness = getattr(setstruct, 'SliceThickness', 8.0)
-        slice_gap = getattr(setstruct, 'SliceGap', 0.0)
+        slice_gap = getattr(setstruct, 'SliceGap', 0.64)
     except Exception as e:
         print(f"Error loading the .mat file: {e}")
         return None
@@ -114,7 +124,7 @@ def save_structures_to_txt(mat_filename, output_dir):
 
     # Adjust resolutions and obtain valid slice indices
     print("Starting resolution adjustment...")
-    setstruct, valid_indices = adjust_resolution(setstruct, structures, slice_thickness, slice_gap)
+    setstruct, valid_indices = adjust_resolution(setstruct, structures)
     print("Resolution adjustment completed.")
 
     if valid_indices is None:
@@ -130,7 +140,11 @@ def save_structures_to_txt(mat_filename, output_dir):
             num_points = x_coords.shape[0]
 
             # Create Z values starting at 0 for valid slices
-            z_base = np.arange(len(valid_indices)) * (slice_thickness + slice_gap)
+            #AVALIAR A SOMA DO +1
+                #Estou achando que está havendo uma incompatilidade entre
+                #os dados extraídos do .mat e a forma como o numpy está lidando com eles
+            z_base = (valid_indices + 1) * (slice_thickness + slice_gap)
+            #print(valid_indices) 
             z_values = np.tile(z_base, (num_points, 1))
 
             # Output file name
