@@ -5,6 +5,8 @@ import sys, os
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import argparse
+from scipy.spatial import Delaunay
+from matplotlib.path import Path
 
 def writeplyfile(writefile, tet_nodes, tet_tot):
     """
@@ -76,7 +78,7 @@ def make_triangle_connection(patch):
 def calculate_normals(points, faces, node_id=None):
     """
     Computes cross-product normals for each face.
-    If node_id is provided, returns the normal at that node by summing 
+    If node_id is provided, returns the normal at that node by summing
     the normals of adjacent faces.
     """
     face_normals = np.cross(
@@ -117,71 +119,91 @@ def cover_apex(nodes_renum, tris, patch, principal_axis=0):
 
     return nodes_covered, tris_covered
 
-def cover_both_ends_centered(nodes, tris, patch, principal_axis=2):
+def triangulate_flat_cap(points_2d, node_offset=0):
     """
-    Fecha ambas as extremidades triangulando radialmente
-    a partir do centróide, ordenando os índices globais para
-    evitar cruzamentos.
+    Cria uma triangulação 2D (Delaunay) a partir de pontos em um plano (X, Y)
+    e filtra os triângulos para respeitar o contorno do polígono.
+    Isso é crucial para contornos não convexos, como os de fibroses,
+    onde a triangulação Delaunay pura poderia criar triângulos "inválidos"
+    que atravessam o interior da forma.
+
+    Parâmetros:
+    - points_2d (numpy.ndarray): Array Nx2 de coordenadas (x, y) de um contorno de fatia.
+    - node_offset (int): Offset a ser adicionado aos índices dos triângulos
+                         para mapeá-los para a lista global de nós.
+
+    Retorna:
+    - numpy.ndarray: Um array (M, 3) de índices dos triângulos válidos.
+                     Retorna um array vazio se não houver triângulos válidos.
+    """
+    if points_2d.shape[0] < 3:
+        return np.empty((0, 3), dtype=int)
+
+    # Realiza a triangulação Delaunay em 2D
+    tri = Delaunay(points_2d)
+    
+
+    # Como o Delaunay cria o desenho inicial da estrutura, 
+    # O Path entra como um "detector de fronteiras" para verificar se os triângulos
+    # estão dentro do polígono definido pelos pontos_2d.
+    # Isso é importante para evitar triângulos que se estendam para fora do contorno.
+    # O último ponto deve ser igual ao primeiro para fechar o contorno
+    polygon_path = Path(points_2d)
+
+    valid_triangles = []
+    for simplex in tri.simplices:
+        # Pega os vértices do triângulo
+        triangle_vertices = points_2d[simplex]
+        
+        # Calcula o centróide do triângulo
+        triangle_centroid = np.mean(triangle_vertices, axis=0)
+        
+        # Verifica se o centróide do triângulo está dentro do polígono original
+        if polygon_path.contains_point(triangle_centroid):
+            valid_triangles.append(simplex)
+            
+    if not valid_triangles:
+        return np.empty((0, 3), dtype=int)
+
+    # Adiciona o offset aos índices dos triângulos válidos
+    return np.array(valid_triangles) + node_offset
+
+def cover_both_ends_with_caps(nodes, tris, patch, principal_axis=2):
+    """
+    Fecha ambas as extremidades triangulando as "tampas" radialmente a partir
+    dos contornos das fatias, usando triangulação 2D (Delaunay).
     - `nodes`: (M×3) array dos nós originais
-    - `tris`: (K×3) conectividade entre fatias
+    - `tris`: (K×3) conectividade entre fatias (malha lateral)
     - patch["width"] = número de pontos por fatia
     - patch["height"] = número de fatias
-    Retorna (nodes_covered, tris_final)
+    Retorna (nodes_final, tris_final)
     """
 
     n_in_strip = patch["width"]
     n_slices   = patch["height"]
 
-    # calcular índices globais das duas bordas
+    # Calcular índices globais das duas bordas
     base_idx = np.arange(0, n_in_strip)
-    top_idx  = np.arange((n_slices-1)*n_in_strip,
-                         n_slices*n_in_strip)
+    top_idx  = np.arange((n_slices-1)*n_in_strip, n_slices*n_in_strip)
 
-    # extrair suas coordenadas
-    pts_base = nodes[base_idx]
-    pts_top  = nodes[top_idx]
+    # Extrair coordenadas 2D para as tampas
+    pts_base_2d = nodes[base_idx, :2] # Pegar apenas X e Y da base
+    pts_top_2d  = nodes[top_idx, :2]  # Pegar apenas X e Y do topo
 
-    # centroids
-    cent_base = pts_base.mean(axis=0)
-    cent_top  = pts_top.mean(axis=0)
+    # Criar triângulos para as tampas
+    base_cap_tris = triangulate_flat_cap(pts_base_2d, node_offset=base_idx[0])
+    top_cap_tris  = triangulate_flat_cap(pts_top_2d, node_offset=top_idx[0])
 
-    # novo array de nós: [cent_base, cent_top, nós_originais]
-    nodes_cov = np.vstack([
-        cent_base[np.newaxis,:],
-        cent_top[np.newaxis,:],
-        nodes
-    ])
+    # Concatena: triângulos da tampa inferior + triângulos laterais + triângulos da tampa superior
+    all_tris = [tris]
+    if base_cap_tris.size > 0:
+        all_tris.append(base_cap_tris)
+    if top_cap_tris.size > 0:
+        all_tris.append(top_cap_tris)
 
-    # ajusta todos os índices de tris em +2
-    tris_shift = tris + 2
+    tris_final = np.vstack(all_tris)
 
-    # função helper que devolve fan de triângulos
-    def make_fan(cent_id, ring_idx):
-        # calcular ângulos e ordenar os índices globais do ring
-        rel = nodes[ring_idx] - nodes_cov[cent_id]
-        ang = np.arctan2(rel[:,1], rel[:,0])
-        order = ring_idx[np.argsort(ang)]
-        # gerar triângulos
-        fans = []
-        n = len(order)
-        for i in range(n):
-            a = order[i]   + 2  # +2 pelo deslocamento de nós_cov
-            b = order[(i+1)%n] + 2
-            fans.append([cent_id, a, b])
-        return np.array(fans, dtype=int)
-
-    # centroid global indices em nodes_cov
-    cent_base_id = 0
-    cent_top_id  = 1
-
-    # gera fans
-    tris_base = make_fan(cent_base_id, base_idx)
-    tris_top  = make_fan(cent_top_id,  top_idx)
-
-    # concatena: base fan + lateral + top fan
-    tris_final = np.vstack([tris_base, tris_shift, tris_top])
-
-    return nodes_cov, tris_final
+    return nodes, tris_final
 
 
 def replicate_single_slice_below(points, slice_thickness, principal_axis=2):
@@ -196,16 +218,16 @@ def replicate_single_slice_below(points, slice_thickness, principal_axis=2):
       patch: {"height": 2, "width": N}
     """
     N = points.shape[0]
-    
+
     # Create a copy of the ring, shifting by -slice_thickness
     ring_lower = points.copy()
-    
+
     # If the sign is inverted, reverse the extrusion direction
-    ring_lower[:, principal_axis] += slice_thickness 
-    
+    ring_lower[:, principal_axis] += slice_thickness
+
     # Stack them: lower ring first, then the original ring
     new_points = np.vstack([ring_lower, points])
-    
+
     # Now we have 2 slices, each with N points
     patch = {"height": 2, "width": N}
     return new_points, patch
@@ -264,7 +286,7 @@ if __name__ == "__main__":
     # Optionally invert Y
     if intert_y and len(points0) > 0:
         points0[:, 1] = -points0[:, 1]
-        
+
     # Optionally reverse the point order
     if user_input["reshuffle_point_order"]:
         points = points0[::-1, :]
@@ -273,15 +295,15 @@ if __name__ == "__main__":
 
     principal_axis = user_input["principal_axis"]
     # Attempt to discover how many slices
-    slice_position_test = points[0, principal_axis]
-    n_per_slice = np.sum(points[:, principal_axis] == slice_position_test)
-    n_slices = int(len(points) / n_per_slice)
+    slice_vals = np.unique(points[:, principal_axis])
+    n_slices = len(slice_vals)
+    n_per_slice = int(len(points) / n_slices)
 
     if n_slices * n_per_slice != len(points):
         print("Error: Inconsistent number of points per slice.")
         sys.exit(1)
 
-    # If there's only one slice, replicate it below
+    # Caso especial para uma fatia só
     if n_slices == 1:
         print("Detected a single slice. Replicating below using 'slice_thickness'...")
         new_points, patch = replicate_single_slice_below(
@@ -293,7 +315,6 @@ if __name__ == "__main__":
         n_slices = patch["height"]
         n_per_slice = patch["width"]
     else:
-        # If there's more than one slice, build patch normally
         patch = {"height": n_slices, "width": n_per_slice}
 
     # Create triangle surface
@@ -303,8 +324,7 @@ if __name__ == "__main__":
     apex_last = None
 
     if cover_both:
-        nodes_final, tris_final = cover_both_ends_centered(points, tris, patch, principal_axis=principal_axis)
-
+        nodes_final, tris_final = cover_both_ends_with_caps(points, tris, patch, principal_axis=principal_axis)
     elif user_input["cover_apex"]:
         nodes_final, tris_final = cover_apex(points, tris, patch, principal_axis=principal_axis)
     else:
@@ -350,21 +370,3 @@ if __name__ == "__main__":
         ax.scatter(points[:, 0], points[:, 1], points[:, 2], c="r", label="Input Points")
         plt.legend()
         plt.show()
-def triangulate_ring_to_center(center, ring_points, offset=0):
-    """
-    Ordena os pontos da borda em torno do centro e gera triângulos ligando ao centro.
-    offset é o índice que será somado aos pontos (ex: para encaixar na lista geral)
-    """
-    # Translada pontos para o centro
-    rel_points = ring_points - center
-    angles = np.arctan2(rel_points[:, 1], rel_points[:, 0])
-    order = np.argsort(angles)
-
-    tris = []
-    n = len(ring_points)
-    for i in range(n):
-        i0 = order[i]
-        i1 = order[(i + 1) % n]
-        tris.append([0, i0 + offset, i1 + offset])  # centro é o 0 no sistema local
-
-    return np.array(tris)

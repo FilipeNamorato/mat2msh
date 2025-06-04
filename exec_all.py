@@ -190,8 +190,8 @@ def execute_commands(input_file):
     #os.remove("./fibrosis_mapped.txt")
     #os.remove("./fibrosis_original.txt")
     
-    shutil.rmtree("./output/plyFiles")
-    shutil.rmtree("./output/scarFiles")
+    #shutil.rmtree("./output/plyFiles")
+    #shutil.rmtree("./output/scarFiles")
     shutil.rmtree("./rois_extruded")
 
 # Main entry point
