@@ -9,24 +9,29 @@ import matplotlib.pyplot as plt
 def mark_fibrosis(path_msh, stl_dir, output_path="saida_com_fibrose.msh", plot_centroids=False):
     # 1) Lê o .msh original
     mesh      = meshio.read(path_msh)
-    points    = mesh.points               # (N_pts, 3)
+    points    = mesh.points # (N_pts, 3)
     cells     = mesh.cells
     cell_data = mesh.cell_data
 
     # 2) Localiza os tetraedros e as tags originais
-    tetra_index = next(i for i, c in enumerate(cells) if c.type == "tetra")
-    tetra       = cells[tetra_index].data    # array shape = (n_tetra, 4)
-    tags        = cell_data["gmsh:physical"][tetra_index]  # shape = (n_tetra,)
+    tetra_index = None
+    for i, c in enumerate(cells):
+        if c.type == "tetra":
+            tetra_index = i
+            break
+    tetra = cells[tetra_index].data    # array shape = (n_tetra, 4)
+    tags = cell_data["gmsh:physical"][tetra_index]  # shape = (n_tetra,)
 
     n_tetra = tetra.shape[0]
 
-    # --- 3) Monta lista de nós únicos que aparecem nos tetras ---
+    # 3) Monta lista de nós únicos que aparecem nos tetras
     # Usamos flatten + np.unique em vez de repetir cada nó:
     flat_nodes      = tetra.flatten()                     # shape = (n_tetra*4,)
     unique_nodes, inverse_idx = np.unique(flat_nodes, return_inverse=True)
-    #  - unique_nodes: índices únicos de 'points' que realmente participam de algum tetra
-    #  - inverse_idx: array (n_tetra*4,) de inteiros dizendo, para cada posição em flat_nodes,
-    #    qual a posição correspondente dentro de unique_nodes.
+    
+    # unique_nodes: índices únicos de 'points' que realmente participam de algum tetra
+    # inverse_idx: array (n_tetra*4,) de inteiros dizendo, para cada posição em flat_nodes,
+    # qual a posição correspondente dentro de unique_nodes.
 
     # Agora coords dos nós únicos:
     coords_unique = points[unique_nodes]  # (N_unique, 3)
@@ -38,18 +43,17 @@ def mark_fibrosis(path_msh, stl_dir, output_path="saida_com_fibrose.msh", plot_c
     input_poly_nodes = vtk.vtkPolyData()
     input_poly_nodes.SetPoints(vtk_pts_nodes)
 
-    # --- 5) Se quiser plotar apenas os centróides, criação abaixo (opcional) ---
-    # (Vamos calcular os centróides aqui, mas não rodar select sobre eles ainda)
+    
     centroids = np.mean(points[tetra], axis=1)  # (n_tetra, 3)
     # Para plotar depois, caso plot_centroids=True.
 
     # 6) Prepara array de tags que será atualizado
     tags_new = tags.copy()  # vamos marcar como “2” (fibrose) os tetras identificados
 
-    # 7) Para cada STL de fibrose, vamos
-    #    a) rodar vtkSelectEnclosedPoints sobre o conjunto de N_unique nós
-    #    b) rodar vtkSelectEnclosedPoints sobre o conjunto de N_tetra centróides
-    #    c) combinar: tetra marcado se (centro dentro) OU (algum vértice dentro)
+    # 7) Para cada STL de fibrose
+    # a) rodar vtkSelectEnclosedPoints sobre o conjunto de N_unique nós
+    # b) rodar vtkSelectEnclosedPoints sobre o conjunto de N_tetra centróides
+    # c) combinar: tetra marcado se (centro dentro) ou (algum vértice dentro)
 
     # Para não recriar o polydata de centróides toda vez, criamos aqui:
     vtk_pts_cent = vtk.vtkPoints()
@@ -58,6 +62,7 @@ def mark_fibrosis(path_msh, stl_dir, output_path="saida_com_fibrose.msh", plot_c
     input_poly_cent = vtk.vtkPolyData()
     input_poly_cent.SetPoints(vtk_pts_cent)
 
+    # Lê e ordena os arquivos STL
     for fname in sorted(os.listdir(stl_dir)):
         if not fname.lower().endswith(".stl"):
             continue
@@ -81,7 +86,7 @@ def mark_fibrosis(path_msh, stl_dir, output_path="saida_com_fibrose.msh", plot_c
         print(f"Processing {fname} ...")
         reader = vtk.vtkSTLReader()
         reader.SetFileName(full_path)
-        reader.Update()
+        reader.Update() #processar leitura
         fib_surface = reader.GetOutput()
 
         # 9) Cria um selector para N_unique nós
@@ -92,30 +97,36 @@ def mark_fibrosis(path_msh, stl_dir, output_path="saida_com_fibrose.msh", plot_c
         selector_nodes.Update()
 
         # 10) Recupera booleano de quais nós estão dentro
-        Nuniq = coords_unique.shape[0]
+        Nuniq = coords_unique.shape[0] #qtd nós dos tetrahedros
         inside_unique_nodes = np.zeros(Nuniq, dtype=bool)
         for i in range(Nuniq):
             inside_unique_nodes[i] = bool(selector_nodes.IsInside(i))
 
-        # 11) Cria também um selector para centróides
-        selector_cent = vtk.vtkSelectEnclosedPoints()
+        # 11) Selector para centróides
+        #selector_cent pontos dos testes
+        #ferramenta de verificar se o ponto está dentro ou fora da superfície
+        selector_cent = vtk.vtkSelectEnclosedPoints() #objeto
         selector_cent.SetInputData(input_poly_cent)
-        selector_cent.SetSurfaceData(fib_surface)
+        selector_cent.SetSurfaceData(fib_surface) #superfície fechada
         selector_cent.SetTolerance(1e-6)
-        selector_cent.Update()
-
-        inside_cent = np.zeros(n_tetra, dtype=bool)
+        # após preparar com o objeto, superfície e tolerância, faz o processo
+        #de comparação se tá dentro ou fora
+        selector_cent.Update() 
+        
+        # ler resultados do 
+        inside_cent = np.zeros(n_tetra, dtype=bool) #array boolean len(n_tetra)
         for i in range(n_tetra):
             inside_cent[i] = bool(selector_cent.IsInside(i))
 
         # 12) Reconstrói um array (n_tetra, 4) dizendo se cada vértice do tetra está dentro
-        #     Cada tetra i corresponde aos índices flat_nodes[i*4 + 0..3]
+        # Cada tetra i corresponde aos índices flat_nodes[i*4 + 0..3]
         inside_nodes_per_tet = inside_unique_nodes[inverse_idx].reshape((n_tetra, 4))
-        #      inside_nodes_per_tet[i,j] == True se o j-ésimo nó do tetra i estiver dentro.
+        # inside_nodes_per_tet[i,j] == True se o j-ésimo nó do tetra i estiver dentro.
 
         # 13) Agora a regra de decisão para cada tetra:
-        #     Marca-se "fibrose" se (centróide dentro) OU (algum dos 4 nós dentro)
-        tet_to_mark = (inside_cent) | (inside_nodes_per_tet.any(axis=1))
+        # Como é array de true ou false, se um for true, já considera fibrose
+        #any(axis=1) verifica os 4 pontos do tetra
+        tet_to_mark = (inside_cent) | (inside_nodes_per_tet.any(axis=1)) 
 
         # 14) Atualiza as tags
         tags_new[tet_to_mark] = 2
@@ -137,7 +148,7 @@ def mark_fibrosis(path_msh, stl_dir, output_path="saida_com_fibrose.msh", plot_c
         binary=False
     )
 
-    # 16) Plot opcional dos centróides apenas para checar (não afeta marcação)
+    # 16) Plot opcional dos centróides
     if plot_centroids:
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
